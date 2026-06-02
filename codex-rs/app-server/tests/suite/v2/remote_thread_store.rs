@@ -49,7 +49,6 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::ThreadMemoryMode;
 use codex_thread_store::CreateThreadParams as StoreCreateThreadParams;
 use codex_thread_store::InMemoryThreadStore;
-use codex_thread_store::ThreadEventPersistenceMode;
 use codex_thread_store::ThreadPersistenceMetadata;
 use codex_thread_store::ThreadStore;
 use pretty_assertions::assert_eq;
@@ -147,6 +146,7 @@ async fn thread_delete_with_non_local_thread_store_does_not_create_local_persist
         .create_thread(StoreCreateThreadParams {
             thread_id: unloaded_thread_id,
             forked_from_id: None,
+            parent_thread_id: None,
             source: SessionSource::Cli,
             thread_source: None,
             base_instructions: BaseInstructions::default(),
@@ -156,7 +156,6 @@ async fn thread_delete_with_non_local_thread_store_does_not_create_local_persist
                 model_provider: "mock_provider".to_string(),
                 memory_mode: ThreadMemoryMode::Enabled,
             },
-            event_persistence_mode: ThreadEventPersistenceMode::Limited,
         })
         .await?;
     delete_thread(
