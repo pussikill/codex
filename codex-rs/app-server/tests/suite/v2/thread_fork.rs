@@ -251,7 +251,7 @@ async fn thread_fork_creates_new_thread_and_emits_started() -> Result<()> {
 }
 
 #[tokio::test]
-async fn thread_fork_currently_reloads_instruction_sources() -> Result<()> {
+async fn thread_fork_inherits_persisted_instruction_sources() -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path(), &server.uri())?;
@@ -326,11 +326,7 @@ async fn thread_fork_currently_reloads_instruction_sources() -> Result<()> {
         ..
     } = to_response::<ThreadForkResponse>(fork_resp)?;
 
-    assert_eq!(
-        instruction_sources,
-        Vec::<AbsolutePathBuf>::new(),
-        "fork currently reloads sources after the files have been removed"
-    );
+    assert_eq!(instruction_sources, expected_sources);
 
     Ok(())
 }

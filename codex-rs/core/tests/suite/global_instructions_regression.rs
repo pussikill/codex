@@ -6,6 +6,8 @@ use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::RolloutItem;
+use codex_protocol::protocol::RolloutLine;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::responses;
@@ -125,8 +127,7 @@ async fn global_loading_warning_surfaces_during_thread_creation() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cold_resume_replays_rendered_instructions_but_reports_current_config_sources() -> Result<()>
-{
+async fn cold_resume_restores_persisted_instruction_sources() -> Result<()> {
     let server = responses::start_mock_server().await;
     let response_mock = responses::mount_sse_sequence(
         &server,
@@ -160,7 +161,7 @@ async fn cold_resume_replays_rendered_instructions_but_reports_current_config_so
     .await;
 
     std::fs::remove_file(old_source.as_path())?;
-    let new_source = write_global(home.as_ref(), "new global instructions")?;
+    write_global(home.as_ref(), "new global instructions")?;
     let mut resume_builder = test_codex().with_home(Arc::clone(&home));
     let resumed = resume_builder
         .resume(&server, Arc::clone(&home), rollout_path)
@@ -168,8 +169,8 @@ async fn cold_resume_replays_rendered_instructions_but_reports_current_config_so
 
     assert_eq!(
         resumed.codex.instruction_sources().await,
-        vec![new_source],
-        "resume currently reports sources from the newly loaded config"
+        vec![old_source],
+        "resume should report sources inherited from persisted history"
     );
 
     resumed.submit_turn("continue resumed thread").await?;
@@ -218,6 +219,7 @@ async fn fork_replays_rendered_instructions_from_shared_history() -> Result<()> 
             /*parent_trace*/ None,
         )
         .await?;
+    assert_eq!(forked.thread.instruction_sources().await, vec![source]);
 
     forked
         .thread
@@ -382,6 +384,18 @@ async fn legacy_resume_rebuilds_from_current_config_after_manual_compaction() ->
         matches!(event, EventMsg::ShutdownComplete)
     })
     .await;
+    let legacy_rollout = std::fs::read_to_string(&rollout_path)?
+        .lines()
+        .map(|line| {
+            let mut rollout_line: RolloutLine = serde_json::from_str(line)?;
+            if let RolloutItem::TurnContext(turn_context) = &mut rollout_line.item {
+                turn_context.user_instructions = None;
+            }
+            serde_json::to_string(&rollout_line)
+        })
+        .collect::<Result<Vec<_>, serde_json::Error>>()?
+        .join("\n");
+    std::fs::write(&rollout_path, format!("{legacy_rollout}\n"))?;
 
     std::fs::write(source.as_path(), "new global instructions")?;
     let mut resume_builder = test_codex()
@@ -390,6 +404,10 @@ async fn legacy_resume_rebuilds_from_current_config_after_manual_compaction() ->
     let resumed = resume_builder
         .resume(&server, Arc::clone(&home), rollout_path)
         .await?;
+    assert_eq!(
+        resumed.codex.instruction_sources().await,
+        Vec::<AbsolutePathBuf>::new()
+    );
     resumed.submit_turn("resume legacy history").await?;
     let resumed_rendered = response_mock.requests()[1].body_json().to_string();
     assert!(resumed_rendered.contains("old global instructions"));
