@@ -9,6 +9,8 @@ use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::RolloutItem;
+use codex_protocol::protocol::RolloutLine;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::load_default_config_for_test;
@@ -245,11 +247,8 @@ async fn global_loading_warning_surfaces_during_thread_creation() -> Result<()> 
     Ok(())
 }
 
-// TODO(anp): Align cold-resume instruction sources with the historical instructions replayed to
-// the model so the API source list and model-visible context describe the same files.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cold_resume_replays_rendered_instructions_but_reports_current_config_sources() -> Result<()>
-{
+async fn cold_resume_restores_persisted_instruction_sources() -> Result<()> {
     // Set up an initial turn and a later cold-resumed turn against the same rollout.
     let server = responses::start_mock_server().await;
     let response_mock = responses::mount_sse_sequence(
@@ -299,11 +298,11 @@ async fn cold_resume_replays_rendered_instructions_but_reports_current_config_so
         .resume(&server, Arc::clone(&home), rollout_path)
         .await?;
 
-    // Assert the API reports the new source while model history replays the old structured prefix.
+    // Assert the API and model history both retain the persisted creation-time source.
     assert_eq!(
         resumed.codex.instruction_sources().await,
-        vec![new_source],
-        "resume reports sources from the newly loaded config"
+        vec![old_source],
+        "resume should report sources inherited from persisted history"
     );
 
     resumed.submit_turn("continue resumed thread").await?;
@@ -325,8 +324,6 @@ async fn cold_resume_replays_rendered_instructions_but_reports_current_config_so
     Ok(())
 }
 
-// TODO(anp): Align fork instruction sources with the historical instructions replayed to the
-// model so the reported source list and model-visible context describe the same files.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fork_replays_rendered_instructions_from_shared_history() -> Result<()> {
     // Set up a parent turn and a later fork turn against the parent's rollout.
@@ -383,11 +380,11 @@ async fn fork_replays_rendered_instructions_from_shared_history() -> Result<()> 
         )
         .await?;
 
-    // Assert the fork reports the new source before issuing its first turn.
+    // Assert the fork reports the source inherited from persisted parent history.
     assert_eq!(
         forked.thread.instruction_sources().await,
-        vec![new_source],
-        "fork config should reflect the newly loaded global source"
+        vec![source],
+        "fork should report sources inherited from persisted history"
     );
 
     forked
@@ -747,6 +744,18 @@ async fn legacy_resume_rebuilds_from_current_config_after_manual_compaction() ->
         matches!(event, EventMsg::ShutdownComplete)
     })
     .await;
+    let legacy_rollout = std::fs::read_to_string(&rollout_path)?
+        .lines()
+        .map(|line| {
+            let mut rollout_line: RolloutLine = serde_json::from_str(line)?;
+            if let RolloutItem::TurnContext(turn_context) = &mut rollout_line.item {
+                turn_context.user_instructions = None;
+            }
+            serde_json::to_string(&rollout_line)
+        })
+        .collect::<Result<Vec<_>, serde_json::Error>>()?
+        .join("\n");
+    std::fs::write(&rollout_path, format!("{legacy_rollout}\n"))?;
 
     // Add a preferred override, then cold-resume with the new source in current configuration.
     let new_source = write_global_override(home.as_ref(), NEW_GLOBAL_INSTRUCTIONS)?;
@@ -757,11 +766,11 @@ async fn legacy_resume_rebuilds_from_current_config_after_manual_compaction() ->
     let resumed = resume_builder
         .resume(&server, Arc::clone(&home), rollout_path)
         .await?;
-    // Assert resume reports the new source while the first resumed turn replays old history.
+    // Legacy history has no persisted source until the first resumed turn resolves current config.
     assert_eq!(
         resumed.codex.instruction_sources().await,
-        vec![new_source.clone()],
-        "resumed thread reports the current global source"
+        Vec::<AbsolutePathBuf>::new(),
+        "legacy resume should not report a source before resolving current config"
     );
     resumed.submit_turn("resume legacy history").await?;
     let requests = response_mock.requests();
