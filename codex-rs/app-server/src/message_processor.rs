@@ -1204,7 +1204,9 @@ impl MessageProcessor {
                 self.catalog_processor.skills_config_write(params).await
             }
             ClientRequest::PluginInstall { params, .. } => {
-                self.plugin_processor.plugin_install(params).await
+                self.plugin_processor
+                    .plugin_install(params, mcp_client_capabilities.clone())
+                    .await
             }
             ClientRequest::PluginUninstall { params, .. } => {
                 self.plugin_processor.plugin_uninstall(params).await
@@ -1302,7 +1304,7 @@ impl MessageProcessor {
             }
             ClientRequest::McpServerToolCall { params, .. } => {
                 self.mcp_processor
-                    .mcp_server_tool_call(&request_id, params)
+                    .mcp_server_tool_call(&request_id, params, mcp_client_capabilities.clone())
                     .await
             }
             ClientRequest::WindowsSandboxSetupStart { params, .. } => {
