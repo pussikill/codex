@@ -3,9 +3,14 @@
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
-use codex_core::LoadedAgentsMd;
+use codex_core::config::Config;
+use codex_extension_api::ExtensionRegistry;
+use codex_extension_api::ExtensionRegistryBuilder;
+use codex_extension_api::GlobalInstruction;
+use codex_extension_api::GlobalInstructions;
 use codex_features::Feature;
 use codex_login::CodexAuth;
 use codex_protocol::config_types::ServiceTier;
@@ -19,6 +24,7 @@ use core_test_support::responses;
 use core_test_support::responses::ResponseMock;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::TestCodexHarness;
+use core_test_support::test_codex::TestGlobalInstructionsContributor;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
@@ -29,7 +35,8 @@ const FIXED_CWD: &str = "/tmp/codex_remote_compaction_parity_workspace";
 const IMAGE_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const SUMMARY: &str = "REMOTE_COMPACTION_PARITY_ENCRYPTED_SUMMARY";
 const DUMMY_FUNCTION_NAME: &str = "test_tool";
-const USER_INSTRUCTIONS: &str = "PARITY_USER_INSTRUCTIONS";
+const INITIAL_USER_INSTRUCTIONS: &str = "PARITY_USER_INSTRUCTIONS";
+const REFRESHED_USER_INSTRUCTIONS: &str = "PARITY_REFRESHED_USER_INSTRUCTIONS";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Mode {
@@ -240,17 +247,8 @@ fn assert_capture_eq(label: &str, legacy: &Capture, v2: &Capture) {
         &legacy_follow_up,
         &v2_follow_up,
     );
-    assert!(
-        legacy
-            .follow_up_body
-            .to_string()
-            .contains(USER_INSTRUCTIONS),
-        "legacy follow-up should retain the configured user instructions for {label}"
-    );
-    assert!(
-        v2.follow_up_body.to_string().contains(USER_INSTRUCTIONS),
-        "v2 follow-up should retain the configured user instructions for {label}"
-    );
+    assert_refreshed_user_instructions(label, legacy);
+    assert_refreshed_user_instructions(label, v2);
 
     assert_json_eq(
         &format!("replacement history parity mismatch for {label}"),
@@ -296,22 +294,21 @@ fn assert_follow_up_and_history_eq(label: &str, legacy: &Capture, v2: &Capture) 
         &legacy_follow_up,
         &v2_follow_up,
     );
-    assert!(
-        legacy
-            .follow_up_body
-            .to_string()
-            .contains(USER_INSTRUCTIONS),
-        "legacy follow-up should retain the configured user instructions for {label}"
-    );
-    assert!(
-        v2.follow_up_body.to_string().contains(USER_INSTRUCTIONS),
-        "v2 follow-up should retain the configured user instructions for {label}"
-    );
+    assert_refreshed_user_instructions(label, legacy);
+    assert_refreshed_user_instructions(label, v2);
 
     assert_json_eq(
         &format!("replacement history parity mismatch for {label}"),
         &legacy.replacement_history,
         &v2.replacement_history,
+    );
+}
+
+fn assert_refreshed_user_instructions(label: &str, capture: &Capture) {
+    let follow_up = capture.follow_up_body.to_string();
+    assert!(
+        follow_up.contains(REFRESHED_USER_INSTRUCTIONS),
+        "post-compact follow-up should contain refreshed global instructions for {label}"
     );
 }
 
@@ -536,25 +533,44 @@ async fn build_harness_inner(
     if hooks {
         builder = builder.with_pre_build_hook(write_manual_compact_hooks);
     }
-    TestCodexHarness::with_builder(builder.with_config(move |config| {
-        config.cwd = codex_utils_absolute_path::AbsolutePathBuf::from_absolute_path(PathBuf::from(
-            FIXED_CWD,
-        ))
-        .expect("fixed cwd should be absolute");
-        config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(USER_INSTRUCTIONS));
-        config.developer_instructions = Some("PARITY_DEVELOPER_INSTRUCTIONS".to_string());
-        if settings.service_tier_fast {
-            config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
-        }
-        config.model_auto_compact_token_limit = auto_compact_limit;
-        if hooks {
-            trust_discovered_hooks(config);
-        }
-        if mode == Mode::V2 {
-            let _ = config.features.enable(Feature::RemoteCompactionV2);
-        }
-    }))
+    TestCodexHarness::with_builder(
+        builder
+            .with_extensions(global_instruction_extensions())
+            .with_config(move |config| {
+                config.cwd = codex_utils_absolute_path::AbsolutePathBuf::from_absolute_path(
+                    PathBuf::from(FIXED_CWD),
+                )
+                .expect("fixed cwd should be absolute");
+                config.developer_instructions = Some("PARITY_DEVELOPER_INSTRUCTIONS".to_string());
+                if settings.service_tier_fast {
+                    config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
+                }
+                config.model_auto_compact_token_limit = auto_compact_limit;
+                if hooks {
+                    trust_discovered_hooks(config);
+                }
+                if mode == Mode::V2 {
+                    let _ = config.features.enable(Feature::RemoteCompactionV2);
+                }
+            }),
+    )
     .await
+}
+
+fn global_instruction_extensions() -> Arc<ExtensionRegistry<Config>> {
+    let contributor = TestGlobalInstructionsContributor::new(vec![
+        Ok(GlobalInstructions {
+            instructions: vec![GlobalInstruction::new(INITIAL_USER_INSTRUCTIONS, None)],
+            warnings: Vec::new(),
+        }),
+        Ok(GlobalInstructions {
+            instructions: vec![GlobalInstruction::new(REFRESHED_USER_INSTRUCTIONS, None)],
+            warnings: Vec::new(),
+        }),
+    ]);
+    let mut builder = ExtensionRegistryBuilder::new();
+    builder.global_instructions_contributor(Arc::new(contributor));
+    Arc::new(builder.build())
 }
 
 fn rollout_path(harness: &TestCodexHarness) -> PathBuf {
