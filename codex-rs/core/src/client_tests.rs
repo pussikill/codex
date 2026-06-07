@@ -106,12 +106,12 @@ fn test_model_client_with_provider_and_parent(
 }
 
 #[test]
-fn response_item_ids_are_limited_to_openai() {
+fn response_item_ids_for_stateless_mode_are_limited_to_openai() {
     let openai_client = test_model_client_with_provider(
         ModelProviderInfo::create_openai_provider(Some("https://example.com/v1".to_string())),
         SessionSource::Exec,
     );
-    assert!(openai_client.should_include_response_item_ids());
+    assert!(openai_client.should_include_response_item_ids_for_stateless_mode());
 
     let azure_client = test_model_client_with_provider(
         ModelProviderInfo {
@@ -120,10 +120,10 @@ fn response_item_ids_are_limited_to_openai() {
         },
         SessionSource::Exec,
     );
-    assert!(!azure_client.should_include_response_item_ids());
+    assert!(!azure_client.should_include_response_item_ids_for_stateless_mode());
 
     let custom_client = test_model_client(SessionSource::Exec);
-    assert!(!custom_client.should_include_response_item_ids());
+    assert!(!custom_client.should_include_response_item_ids_for_stateless_mode());
 }
 
 fn test_model_info() -> ModelInfo {

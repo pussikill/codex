@@ -458,7 +458,7 @@ async fn azure_default_store_attaches_ids_and_headers() -> Result<()> {
                 extra_headers,
                 compression: Compression::None,
                 turn_state: None,
-                include_item_ids: false,
+                include_item_ids_for_stateless_mode: false,
             },
         )
         .await?;
@@ -552,7 +552,7 @@ async fn response_item_ids_require_explicit_request_option() -> Result<()> {
         .stream_request(
             request,
             ResponsesOptions {
-                include_item_ids: true,
+                include_item_ids_for_stateless_mode: true,
                 ..Default::default()
             },
         )

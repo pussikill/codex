@@ -216,7 +216,7 @@ impl ResponsesWebsocketConnection {
         &self,
         request: ResponsesWsRequest,
         connection_reused: bool,
-        include_item_ids: bool,
+        include_item_ids_for_stateless_mode: bool,
     ) -> Result<ResponseStream, ApiError> {
         let (tx_event, rx_event) =
             mpsc::channel::<std::result::Result<ResponseEvent, ApiError>>(1600);
@@ -229,7 +229,7 @@ impl ResponsesWebsocketConnection {
         let mut request_body = serde_json::to_value(&request).map_err(|err| {
             ApiError::Stream(format!("failed to encode websocket request: {err}"))
         })?;
-        if include_item_ids {
+        if include_item_ids_for_stateless_mode {
             let ResponsesWsRequest::ResponseCreate(request) = &request;
             attach_all_response_item_ids_to_input(&mut request_body, &request.input);
         }

@@ -63,11 +63,11 @@ impl<T: HttpTransport> CompactClient<T> {
         input: &CompactionInput<'_>,
         extra_headers: HeaderMap,
         request_timeout: Duration,
-        include_item_ids: bool,
+        include_item_ids_for_stateless_mode: bool,
     ) -> Result<Vec<ResponseItem>, ApiError> {
         let mut body = to_value(input)
             .map_err(|e| ApiError::Stream(format!("failed to encode compaction input: {e}")))?;
-        if include_item_ids {
+        if include_item_ids_for_stateless_mode {
             attach_all_response_item_ids_to_input(&mut body, input.input);
         }
         self.compact(body, extra_headers, request_timeout).await

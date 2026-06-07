@@ -8,7 +8,7 @@ pub enum Compression {
     Zstd,
 }
 
-pub(crate) fn attach_azure_stored_response_item_ids(
+pub(crate) fn attach_stateful_response_item_ids(
     payload_json: &mut Value,
     original_items: &[ResponseItem],
 ) {
