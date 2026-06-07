@@ -8,7 +8,10 @@ pub enum Compression {
     Zstd,
 }
 
-pub(crate) fn attach_item_ids(payload_json: &mut Value, original_items: &[ResponseItem]) {
+pub(crate) fn attach_azure_stored_response_item_ids(
+    payload_json: &mut Value,
+    original_items: &[ResponseItem],
+) {
     let Some(input_value) = payload_json.get_mut("input") else {
         return;
     };

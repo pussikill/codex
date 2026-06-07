@@ -1647,6 +1647,96 @@ async fn responses_websocket_creates_on_non_prefix() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn responses_websocket_openai_incremental_create_sends_delta_item_id() {
+    skip_if_no_network!();
+
+    let server = start_websocket_server(vec![vec![
+        vec![
+            ev_response_created("resp-1"),
+            ev_assistant_message("msg_assistant_1", "assistant output"),
+            ev_completed("resp-1"),
+        ],
+        vec![ev_response_created("resp-2"), ev_completed("resp-2")],
+    ]])
+    .await;
+
+    let harness = websocket_harness_with_provider_options(
+        openai_websocket_provider(&server),
+        /*runtime_metrics_enabled*/ false,
+    )
+    .await;
+    let mut session = harness.client.new_session();
+    let prompt_one = prompt_with_input(vec![message_item_with_id("msg_user_1", "hello")]);
+    let prompt_two = prompt_with_input(vec![
+        message_item_with_id("msg_user_1", "hello"),
+        assistant_message_item("msg_assistant_1", "assistant output"),
+        message_item_with_id("msg_user_2", "second"),
+    ]);
+
+    stream_until_complete(&mut session, &harness, &prompt_one).await;
+    stream_until_complete(&mut session, &harness, &prompt_two).await;
+
+    let second = server
+        .single_connection()
+        .get(1)
+        .expect("missing second request")
+        .body_json();
+    assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
+    assert_eq!(second["input"][0]["id"].as_str(), Some("msg_user_2"));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn responses_websocket_openai_full_create_replays_item_ids() {
+    skip_if_no_network!();
+
+    let server = start_websocket_server(vec![vec![
+        vec![
+            ev_response_created("resp-1"),
+            ev_assistant_message("msg_assistant_1", "assistant output"),
+            ev_completed("resp-1"),
+        ],
+        vec![ev_response_created("resp-2"), ev_completed("resp-2")],
+    ]])
+    .await;
+
+    let harness = websocket_harness_with_provider_options(
+        openai_websocket_provider(&server),
+        /*runtime_metrics_enabled*/ false,
+    )
+    .await;
+    let mut session = harness.client.new_session();
+    let prompt_one = prompt_with_input_and_instructions(
+        vec![message_item_with_id("msg_user_1", "hello")],
+        "base instructions one",
+    );
+    let prompt_two = prompt_with_input_and_instructions(
+        vec![
+            message_item_with_id("msg_user_1", "hello"),
+            assistant_message_item("msg_assistant_1", "assistant output"),
+            message_item_with_id("msg_user_2", "second"),
+        ],
+        "base instructions two",
+    );
+
+    stream_until_complete(&mut session, &harness, &prompt_one).await;
+    stream_until_complete(&mut session, &harness, &prompt_two).await;
+
+    let second = server
+        .single_connection()
+        .get(1)
+        .expect("missing second request")
+        .body_json();
+    assert_eq!(second.get("previous_response_id"), None);
+    assert_eq!(second["input"][0]["id"].as_str(), Some("msg_user_1"));
+    assert_eq!(second["input"][1]["id"].as_str(), Some("msg_assistant_1"));
+    assert_eq!(second["input"][2]["id"].as_str(), Some("msg_user_2"));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responses_websocket_creates_when_non_input_request_fields_change() {
     skip_if_no_network!();
 
@@ -1950,6 +2040,15 @@ fn message_item(text: &str) -> ResponseItem {
     }
 }
 
+fn message_item_with_id(id: &str, text: &str) -> ResponseItem {
+    ResponseItem::Message {
+        id: Some(id.to_string()),
+        role: "user".into(),
+        content: vec![ContentItem::InputText { text: text.into() }],
+        phase: None,
+    }
+}
+
 fn assistant_message_item(id: &str, text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: Some(id.to_string()),
@@ -1975,6 +2074,16 @@ fn prompt_with_input_and_instructions(input: Vec<ResponseItem>, instructions: &s
 
 fn websocket_provider(server: &WebSocketTestServer) -> ModelProviderInfo {
     websocket_provider_with_connect_timeout(server, /*websocket_connect_timeout_ms*/ None)
+}
+
+fn openai_websocket_provider(server: &WebSocketTestServer) -> ModelProviderInfo {
+    let mut provider =
+        ModelProviderInfo::create_openai_provider(Some(format!("{}/v1", server.uri())));
+    provider.request_max_retries = Some(0);
+    provider.stream_max_retries = Some(0);
+    provider.stream_idle_timeout_ms = Some(5_000);
+    provider.supports_websockets = true;
+    provider
 }
 
 fn websocket_provider_with_connect_timeout(

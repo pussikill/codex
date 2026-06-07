@@ -4,6 +4,7 @@ use crate::Prompt;
 use crate::client::CompactConversationRequestSettings;
 use crate::compact::CompactionAnalyticsAttempt;
 use crate::compact::InitialContextInjection;
+use crate::compact::assign_client_generated_ids;
 use crate::compact::compaction_status_from_result;
 use crate::compact::insert_initial_context_before_last_real_user_or_summary;
 use crate::context_manager::ContextManager;
@@ -312,7 +313,7 @@ pub(crate) async fn process_compacted_history(
         initial_context_injection,
         InitialContextInjection::BeforeLastUserMessage
     ) {
-        sess.build_initial_context(turn_context).await
+        assign_client_generated_ids(sess.build_initial_context(turn_context).await)
     } else {
         Vec::new()
     };
@@ -450,25 +451,34 @@ pub(crate) fn trim_function_call_history_to_fit_context_window(
 
 fn rewritten_output_for_context_window(item: &ResponseItem) -> Option<ResponseItem> {
     Some(match item {
-        ResponseItem::FunctionCallOutput { call_id, output } => ResponseItem::FunctionCallOutput {
+        ResponseItem::FunctionCallOutput {
+            id,
+            call_id,
+            output,
+        } => ResponseItem::FunctionCallOutput {
+            id: id.clone(),
             call_id: call_id.clone(),
             output: truncated_output_payload(output),
         },
         ResponseItem::CustomToolCallOutput {
+            id,
             call_id,
             name,
             output,
         } => ResponseItem::CustomToolCallOutput {
+            id: id.clone(),
             call_id: call_id.clone(),
             name: name.clone(),
             output: truncated_output_payload(output),
         },
         ResponseItem::ToolSearchOutput {
+            id,
             call_id,
             status,
             execution,
             ..
         } => ResponseItem::ToolSearchOutput {
+            id: id.clone(),
             call_id: call_id.clone(),
             status: status.clone(),
             execution: execution.clone(),

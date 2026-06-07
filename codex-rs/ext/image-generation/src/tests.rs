@@ -339,6 +339,7 @@ fn generated_item(result: &str) -> ResponseItem {
 
 fn generated_function_output(call_id: &str, result: &str) -> ResponseItem {
     ResponseItem::FunctionCallOutput {
+        id: None,
         call_id: call_id.to_string(),
         output: FunctionCallOutputPayload {
             body: FunctionCallOutputBody::ContentItems(vec![

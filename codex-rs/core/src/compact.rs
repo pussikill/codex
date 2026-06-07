@@ -67,6 +67,17 @@ pub(crate) fn should_use_remote_compact_task(provider: &ModelProviderInfo) -> bo
     provider.supports_remote_compaction()
 }
 
+/// Assigns stable Responses API IDs to newly created Codex-owned compaction items.
+///
+/// Do not use this for server-returned or rollout-loaded history, where a missing ID must remain
+/// omitted instead of inventing a new identity during replay.
+pub(crate) fn assign_client_generated_ids(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    items
+        .into_iter()
+        .map(ResponseItem::with_new_client_generated_id_if_missing)
+        .collect()
+}
+
 pub(crate) async fn run_inline_auto_compact_task(
     sess: Arc<Session>,
     turn_context: Arc<TurnContext>,
@@ -302,6 +313,7 @@ async fn run_compact_task_inner_impl(
         new_history =
             insert_initial_context_before_last_real_user_or_summary(new_history, initial_context);
     }
+    let new_history = assign_client_generated_ids(new_history);
     let reference_context_item = match initial_context_injection {
         InitialContextInjection::DoNotInject => None,
         InitialContextInjection::BeforeLastUserMessage => Some(turn_context.to_turn_context_item()),

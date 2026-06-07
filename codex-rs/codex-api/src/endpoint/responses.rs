@@ -5,7 +5,7 @@ use crate::endpoint::session::EndpointSession;
 use crate::error::ApiError;
 use crate::provider::Provider;
 use crate::requests::Compression;
-use crate::requests::attach_item_ids;
+use crate::requests::attach_azure_stored_response_item_ids;
 use crate::requests::headers::build_session_headers;
 use crate::requests::headers::insert_header;
 use crate::requests::headers::subagent_header;
@@ -14,6 +14,7 @@ use crate::telemetry::SseTelemetry;
 use codex_client::HttpTransport;
 use codex_client::RequestCompression;
 use codex_client::RequestTelemetry;
+use codex_protocol::models::attach_all_response_item_ids_to_input;
 use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -36,6 +37,7 @@ pub struct ResponsesOptions {
     pub extra_headers: HeaderMap,
     pub compression: Compression,
     pub turn_state: Option<Arc<OnceLock<String>>>,
+    pub include_item_ids: bool,
 }
 
 impl<T: HttpTransport> ResponsesClient<T> {
@@ -79,12 +81,17 @@ impl<T: HttpTransport> ResponsesClient<T> {
             extra_headers,
             compression,
             turn_state,
+            include_item_ids,
         } = options;
 
         let mut body = serde_json::to_value(&request)
             .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
-        if request.store && self.session.provider().is_azure_responses_endpoint() {
-            attach_item_ids(&mut body, &request.input);
+        if self.session.provider().is_azure_responses_endpoint() {
+            if request.store {
+                attach_azure_stored_response_item_ids(&mut body, &request.input);
+            }
+        } else if include_item_ids {
+            attach_all_response_item_ids_to_input(&mut body, &request.input);
         }
 
         let mut headers = extra_headers;

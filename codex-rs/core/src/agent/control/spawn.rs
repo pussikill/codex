@@ -468,6 +468,7 @@ impl AgentControl {
                 crate::context_manager::updates::build_developer_update_item(vec![
                     subagent_usage_hint_text,
                 ])
+                .map(ResponseItem::with_new_client_generated_id_if_missing)
         {
             forked_rollout_items.push(RolloutItem::ResponseItem(subagent_usage_hint_message));
         }

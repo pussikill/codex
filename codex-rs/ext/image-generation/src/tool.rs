@@ -214,20 +214,21 @@ fn edit_images(history: &[ResponseItem]) -> Vec<ImageUrl> {
                     image_url: format!("data:image/png;base64,{result}"),
                 });
             }
-            ResponseItem::FunctionCallOutput { call_id, output }
-                if history.iter().any(|item| {
-                    matches!(
-                        item,
-                        ResponseItem::FunctionCall {
-                            name,
-                            namespace: Some(namespace),
-                            call_id: function_call_id,
-                            ..
-                        } if function_call_id == call_id
-                            && name == IMAGEGEN_TOOL_NAME
-                            && namespace == IMAGE_GEN_NAMESPACE
-                    )
-                }) =>
+            ResponseItem::FunctionCallOutput {
+                call_id, output, ..
+            } if history.iter().any(|item| {
+                matches!(
+                    item,
+                    ResponseItem::FunctionCall {
+                        name,
+                        namespace: Some(namespace),
+                        call_id: function_call_id,
+                        ..
+                    } if function_call_id == call_id
+                        && name == IMAGEGEN_TOOL_NAME
+                        && namespace == IMAGE_GEN_NAMESPACE
+                )
+            }) =>
             {
                 generated_images.extend(output.content_items().into_iter().flatten().filter_map(
                     |item| match item {

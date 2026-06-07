@@ -20,6 +20,10 @@ impl Session {
         &self,
         input: Vec<ResponseItem>,
     ) -> Result<(), Vec<ResponseItem>> {
+        let input = input
+            .into_iter()
+            .map(ResponseItem::with_new_client_generated_id_if_missing)
+            .collect::<Vec<_>>();
         let mut active = self.active_turn.lock().await;
         match active.as_mut() {
             Some(active_turn) => {
@@ -46,6 +50,10 @@ impl Session {
         self: &Arc<Self>,
         input: Vec<ResponseItem>,
     ) -> Result<(), TryStartTurnIfIdleError> {
+        let input = input
+            .into_iter()
+            .map(ResponseItem::with_new_client_generated_id_if_missing)
+            .collect::<Vec<_>>();
         if input.is_empty() {
             return Ok(());
         }

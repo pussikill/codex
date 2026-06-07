@@ -9,7 +9,9 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::ser::Serializer;
+use serde_json::Value;
 use ts_rs::TS;
+use uuid::Uuid;
 
 use crate::permissions::FileSystemAccessMode;
 use crate::permissions::FileSystemPath;
@@ -822,6 +824,10 @@ pub enum ResponseItem {
     //   - an array of structured content items (`content_items`)
     // We keep this behavior centralized in `FunctionCallOutputPayload`.
     FunctionCallOutput {
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
+        #[schemars(skip)]
+        id: Option<String>,
         call_id: String,
         #[ts(as = "FunctionCallOutputBody")]
         #[schemars(with = "FunctionCallOutputBody")]
@@ -843,6 +849,10 @@ pub enum ResponseItem {
     // `function_call_output.output` so freeform tools can return either plain
     // text or structured content items.
     CustomToolCallOutput {
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
+        #[schemars(skip)]
+        id: Option<String>,
         call_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
@@ -852,6 +862,10 @@ pub enum ResponseItem {
         output: FunctionCallOutputPayload,
     },
     ToolSearchOutput {
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
+        #[schemars(skip)]
+        id: Option<String>,
         call_id: Option<String>,
         status: String,
         execution: String,
@@ -896,6 +910,10 @@ pub enum ResponseItem {
     },
     #[serde(alias = "compaction_summary")]
     Compaction {
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
+        #[schemars(skip)]
+        id: Option<String>,
         encrypted_content: String,
     },
     CompactionTrigger,
@@ -908,11 +926,178 @@ pub enum ResponseItem {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClientGeneratedResponseItemIdKind {
+    Message,
+    FunctionCallOutput,
+    CustomToolCallOutput,
+    ToolSearchOutput,
+}
+
+impl ClientGeneratedResponseItemIdKind {
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Message => "msg",
+            Self::FunctionCallOutput => "fco",
+            Self::CustomToolCallOutput => "ctco",
+            Self::ToolSearchOutput => "tso",
+        }
+    }
+}
+
+fn new_client_generated_response_item_id(kind: ClientGeneratedResponseItemIdKind) -> String {
+    format!("{}_{}", kind.prefix(), Uuid::new_v4().simple())
+}
+
+fn client_generated_response_item_id(
+    id: Option<String>,
+    kind: ClientGeneratedResponseItemIdKind,
+) -> Option<String> {
+    Some(
+        id.filter(|id| !id.is_empty())
+            .unwrap_or_else(|| new_client_generated_response_item_id(kind)),
+    )
+}
+
 impl ResponseItem {
+    /// Ensures a newly created Codex-owned message has a stable Responses API ID.
+    ///
+    /// Use this for synthetic messages Codex authors directly, including assistant-role messages
+    /// such as `/review` exit messages. Do not use it for assistant messages loaded from rollout
+    /// history or returned by the model, where a missing historical ID must remain omitted.
+    pub fn with_new_client_generated_message_id_if_missing(self) -> Self {
+        match self {
+            Self::Message {
+                id,
+                role,
+                content,
+                phase,
+            } => Self::Message {
+                id: client_generated_response_item_id(
+                    id,
+                    ClientGeneratedResponseItemIdKind::Message,
+                ),
+                role,
+                content,
+                phase,
+            },
+            item => item,
+        }
+    }
+
+    /// Ensures a newly created Codex-originated item has a stable Responses API ID.
+    ///
+    /// Do not use this for items loaded from rollout history: missing historical IDs must remain
+    /// omitted so replay does not invent new identities.
+    pub fn with_new_client_generated_id_if_missing(self) -> Self {
+        match self {
+            Self::Message {
+                id,
+                role,
+                content,
+                phase,
+            } if role != "assistant" => Self::Message {
+                id: client_generated_response_item_id(
+                    id,
+                    ClientGeneratedResponseItemIdKind::Message,
+                ),
+                role,
+                content,
+                phase,
+            },
+            Self::FunctionCallOutput {
+                id,
+                call_id,
+                output,
+            } => Self::FunctionCallOutput {
+                id: client_generated_response_item_id(
+                    id,
+                    ClientGeneratedResponseItemIdKind::FunctionCallOutput,
+                ),
+                call_id,
+                output,
+            },
+            Self::CustomToolCallOutput {
+                id,
+                call_id,
+                name,
+                output,
+            } => Self::CustomToolCallOutput {
+                id: client_generated_response_item_id(
+                    id,
+                    ClientGeneratedResponseItemIdKind::CustomToolCallOutput,
+                ),
+                call_id,
+                name,
+                output,
+            },
+            Self::ToolSearchOutput {
+                id,
+                call_id,
+                status,
+                execution,
+                tools,
+            } if execution == "client" => Self::ToolSearchOutput {
+                id: client_generated_response_item_id(
+                    id,
+                    ClientGeneratedResponseItemIdKind::ToolSearchOutput,
+                ),
+                call_id,
+                status,
+                execution,
+                tools,
+            },
+            item => item,
+        }
+    }
+
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            Self::Message { id, .. }
+            | Self::LocalShellCall { id, .. }
+            | Self::FunctionCall { id, .. }
+            | Self::ToolSearchCall { id, .. }
+            | Self::FunctionCallOutput { id, .. }
+            | Self::CustomToolCall { id, .. }
+            | Self::CustomToolCallOutput { id, .. }
+            | Self::ToolSearchOutput { id, .. }
+            | Self::WebSearchCall { id, .. }
+            | Self::Compaction { id, .. } => id.as_deref(),
+            Self::Reasoning { id, .. } | Self::ImageGenerationCall { id, .. } => Some(id),
+            Self::AgentMessage { .. }
+            | Self::CompactionTrigger
+            | Self::ContextCompaction { .. }
+            | Self::Other => None,
+        }
+    }
+
+    pub fn attach_id_to_json(&self, value: &mut Value) {
+        let Some(id) = self.id().filter(|id| !id.is_empty()) else {
+            return;
+        };
+        let Some(obj) = value.as_object_mut() else {
+            return;
+        };
+        obj.insert("id".to_string(), Value::String(id.to_string()));
+    }
+
     /// Returns whether this item is an ordinary user-role message.
     pub fn is_user_message(&self) -> bool {
         matches!(self, Self::Message { role, .. } if role == "user")
     }
+}
+
+pub(crate) fn attach_all_response_item_ids(values: &mut [Value], items: &[ResponseItem]) {
+    for (value, item) in values.iter_mut().zip(items) {
+        item.attach_id_to_json(value);
+    }
+}
+
+pub fn attach_all_response_item_ids_to_input(payload_json: &mut Value, items: &[ResponseItem]) {
+    let Some(Value::Array(values)) = payload_json.get_mut("input") else {
+        return;
+    };
+    attach_all_response_item_ids(values, items);
 }
 
 pub const BASE_INSTRUCTIONS_DEFAULT: &str = include_str!("prompts/base_instructions/default.md");
@@ -1133,21 +1318,40 @@ impl From<ResponseInputItem> for ResponseItem {
             } => Self::Message {
                 role,
                 content,
-                id: None,
+                id: client_generated_response_item_id(
+                    /*id*/ None,
+                    ClientGeneratedResponseItemIdKind::Message,
+                ),
                 phase,
             },
-            ResponseInputItem::FunctionCallOutput { call_id, output } => {
-                Self::FunctionCallOutput { call_id, output }
-            }
+            ResponseInputItem::FunctionCallOutput { call_id, output } => Self::FunctionCallOutput {
+                id: client_generated_response_item_id(
+                    /*id*/ None,
+                    ClientGeneratedResponseItemIdKind::FunctionCallOutput,
+                ),
+                call_id,
+                output,
+            },
             ResponseInputItem::McpToolCallOutput { call_id, output } => {
                 let output = output.into_function_call_output_payload();
-                Self::FunctionCallOutput { call_id, output }
+                Self::FunctionCallOutput {
+                    id: client_generated_response_item_id(
+                        /*id*/ None,
+                        ClientGeneratedResponseItemIdKind::FunctionCallOutput,
+                    ),
+                    call_id,
+                    output,
+                }
             }
             ResponseInputItem::CustomToolCallOutput {
                 call_id,
                 name,
                 output,
             } => Self::CustomToolCallOutput {
+                id: client_generated_response_item_id(
+                    /*id*/ None,
+                    ClientGeneratedResponseItemIdKind::CustomToolCallOutput,
+                ),
                 call_id,
                 name,
                 output,
@@ -1158,6 +1362,10 @@ impl From<ResponseInputItem> for ResponseItem {
                 execution,
                 tools,
             } => Self::ToolSearchOutput {
+                id: client_generated_response_item_id(
+                    /*id*/ None,
+                    ClientGeneratedResponseItemIdKind::ToolSearchOutput,
+                ),
                 call_id: Some(call_id),
                 status,
                 execution,
@@ -1672,17 +1880,268 @@ mod tests {
             phase: Some(MessagePhase::Commentary),
         });
 
+        let ResponseItem::Message {
+            id: Some(id),
+            role,
+            content,
+            phase,
+        } = item
+        else {
+            panic!("expected assistant message with generated id");
+        };
+        assert!(id.starts_with("msg_"));
+        assert_eq!(role, "assistant");
+        assert_eq!(
+            content,
+            vec![ContentItem::OutputText {
+                text: "still working".to_string(),
+            }]
+        );
+        assert_eq!(phase, Some(MessagePhase::Commentary));
+    }
+
+    #[test]
+    fn client_generated_response_item_ids_preserve_existing_ids() {
+        let item = ResponseItem::Message {
+            id: Some("msg_existing".to_string()),
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "still working".to_string(),
+            }],
+            phase: Some(MessagePhase::Commentary),
+        }
+        .with_new_client_generated_id_if_missing();
+
         assert_eq!(
             item,
             ResponseItem::Message {
-                id: None,
-                role: "assistant".to_string(),
-                content: vec![ContentItem::OutputText {
+                id: Some("msg_existing".to_string()),
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
                     text: "still working".to_string(),
                 }],
                 phase: Some(MessagePhase::Commentary),
             }
         );
+    }
+
+    #[test]
+    fn new_client_generated_response_item_ids_use_responses_api_prefixes() {
+        for (kind, prefix) in [
+            (ClientGeneratedResponseItemIdKind::Message, "msg"),
+            (ClientGeneratedResponseItemIdKind::FunctionCallOutput, "fco"),
+            (
+                ClientGeneratedResponseItemIdKind::CustomToolCallOutput,
+                "ctco",
+            ),
+            (ClientGeneratedResponseItemIdKind::ToolSearchOutput, "tso"),
+        ] {
+            let id = new_client_generated_response_item_id(kind);
+            assert!(id.starts_with(&format!("{prefix}_")), "unexpected id: {id}");
+        }
+    }
+
+    #[test]
+    fn client_generated_response_item_ids_replace_empty_ids() {
+        let ResponseItem::Message { id: Some(id), .. } = ResponseItem::Message {
+            id: Some(String::new()),
+            role: "user".to_string(),
+            content: Vec::new(),
+            phase: None,
+        }
+        .with_new_client_generated_id_if_missing() else {
+            panic!("expected message id");
+        };
+
+        assert!(id.starts_with("msg_"));
+    }
+
+    #[test]
+    fn synthetic_assistant_messages_can_get_client_generated_ids() {
+        let ResponseItem::Message { id: Some(id), .. } = ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: Vec::new(),
+            phase: None,
+        }
+        .with_new_client_generated_message_id_if_missing() else {
+            panic!("expected message id");
+        };
+
+        assert!(id.starts_with("msg_"));
+    }
+
+    #[test]
+    fn server_generated_response_items_keep_missing_ids() {
+        let assistant_message = ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: Vec::new(),
+            phase: None,
+        };
+        let reasoning = ResponseItem::Reasoning {
+            id: String::new(),
+            summary: Vec::new(),
+            content: None,
+            encrypted_content: Some("opaque".to_string()),
+        };
+        let compaction = ResponseItem::Compaction {
+            id: None,
+            encrypted_content: "opaque".to_string(),
+        };
+        let server_tool_search_output = ResponseItem::ToolSearchOutput {
+            id: None,
+            call_id: Some("call_search".to_string()),
+            status: "completed".to_string(),
+            execution: "server".to_string(),
+            tools: Vec::new(),
+        };
+
+        assert_eq!(
+            assistant_message
+                .clone()
+                .with_new_client_generated_id_if_missing(),
+            assistant_message
+        );
+        assert_eq!(
+            reasoning.clone().with_new_client_generated_id_if_missing(),
+            reasoning
+        );
+        assert_eq!(
+            compaction.clone().with_new_client_generated_id_if_missing(),
+            compaction
+        );
+        assert_eq!(
+            server_tool_search_output
+                .clone()
+                .with_new_client_generated_id_if_missing(),
+            server_tool_search_output
+        );
+    }
+
+    #[test]
+    fn attaches_response_item_ids_to_input_json() {
+        let items = vec![
+            ResponseItem::Message {
+                id: Some("msg_1".to_string()),
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "hello".to_string(),
+                }],
+                phase: None,
+            },
+            ResponseItem::Reasoning {
+                id: "rs_1".to_string(),
+                summary: Vec::new(),
+                content: None,
+                encrypted_content: None,
+            },
+            ResponseItem::LocalShellCall {
+                id: Some("lsh_1".to_string()),
+                call_id: Some("call_shell".to_string()),
+                status: LocalShellStatus::Completed,
+                action: LocalShellAction::Exec(LocalShellExecAction {
+                    command: vec!["echo".to_string(), "ok".to_string()],
+                    timeout_ms: None,
+                    working_directory: None,
+                    env: None,
+                    user: None,
+                }),
+            },
+            ResponseItem::FunctionCall {
+                id: Some("fc_1".to_string()),
+                name: "shell".to_string(),
+                namespace: None,
+                arguments: "{}".to_string(),
+                call_id: "call_function".to_string(),
+            },
+            ResponseItem::ToolSearchCall {
+                id: Some("tsc_1".to_string()),
+                call_id: Some("call_search".to_string()),
+                status: Some("completed".to_string()),
+                execution: "client".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ResponseItem::FunctionCallOutput {
+                id: Some("fco_1".to_string()),
+                call_id: "call_1".to_string(),
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            },
+            ResponseItem::CustomToolCall {
+                id: Some("ctc_1".to_string()),
+                status: Some("completed".to_string()),
+                call_id: "call_custom".to_string(),
+                name: "apply_patch".to_string(),
+                input: "{}".to_string(),
+            },
+            ResponseItem::CustomToolCallOutput {
+                id: Some("ctco_1".to_string()),
+                call_id: "call_custom".to_string(),
+                name: Some("apply_patch".to_string()),
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            },
+            ResponseItem::ToolSearchOutput {
+                id: Some("tso_1".to_string()),
+                call_id: Some("call_search".to_string()),
+                status: "completed".to_string(),
+                execution: "client".to_string(),
+                tools: Vec::new(),
+            },
+            ResponseItem::WebSearchCall {
+                id: Some("ws_1".to_string()),
+                status: Some("completed".to_string()),
+                action: Some(WebSearchAction::Search {
+                    query: Some("weather".to_string()),
+                    queries: None,
+                }),
+            },
+            ResponseItem::ImageGenerationCall {
+                id: "ig_1".to_string(),
+                status: "completed".to_string(),
+                revised_prompt: None,
+                result: "image".to_string(),
+            },
+            ResponseItem::Compaction {
+                id: Some("cmp_1".to_string()),
+                encrypted_content: "opaque".to_string(),
+            },
+        ];
+        let mut payload = serde_json::json!({
+            "input": serde_json::to_value(&items).expect("serialize input"),
+        });
+
+        attach_all_response_item_ids_to_input(&mut payload, &items);
+
+        let ids = payload["input"]
+            .as_array()
+            .expect("input array")
+            .iter()
+            .map(|item| item["id"].as_str().expect("item id"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                "msg_1", "rs_1", "lsh_1", "fc_1", "tsc_1", "fco_1", "ctc_1", "ctco_1", "tso_1",
+                "ws_1", "ig_1", "cmp_1",
+            ]
+        );
+    }
+
+    #[test]
+    fn attach_response_item_ids_leaves_missing_ids_unchanged() {
+        let items = vec![ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: Vec::new(),
+            phase: None,
+        }];
+        let mut payload = serde_json::json!({
+            "input": serde_json::to_value(&items).expect("serialize input"),
+        });
+
+        attach_all_response_item_ids_to_input(&mut payload, &items);
+
+        assert_eq!(payload["input"][0].get("id"), None);
     }
 
     #[test]
@@ -2503,6 +2962,7 @@ mod tests {
         assert_eq!(
             item,
             ResponseItem::Compaction {
+                id: None,
                 encrypted_content: "abc".into(),
             }
         );
@@ -2767,9 +3227,15 @@ mod tests {
                 }
             })],
         };
+        let item = ResponseItem::from(input.clone());
+        let ResponseItem::ToolSearchOutput { id: Some(id), .. } = &item else {
+            panic!("expected tool search output id");
+        };
+        assert!(id.starts_with("tso_"));
         assert_eq!(
-            ResponseItem::from(input.clone()),
+            item,
             ResponseItem::ToolSearchOutput {
+                id: Some(id.clone()),
                 call_id: Some("search-1".to_string()),
                 status: "completed".to_string(),
                 execution: "client".to_string(),
@@ -2855,6 +3321,7 @@ mod tests {
         assert_eq!(
             parsed_output,
             ResponseItem::ToolSearchOutput {
+                id: None,
                 call_id: None,
                 status: "completed".to_string(),
                 execution: "server".to_string(),

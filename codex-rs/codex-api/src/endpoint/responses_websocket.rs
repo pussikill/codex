@@ -10,6 +10,7 @@ use crate::sse::process_responses_event;
 use crate::telemetry::WebsocketTelemetry;
 use codex_client::TransportError;
 use codex_client::maybe_build_rustls_client_config_with_custom_ca;
+use codex_protocol::models::attach_all_response_item_ids_to_input;
 use codex_utils_rustls_provider::ensure_rustls_crypto_provider;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -215,6 +216,7 @@ impl ResponsesWebsocketConnection {
         &self,
         request: ResponsesWsRequest,
         connection_reused: bool,
+        include_item_ids: bool,
     ) -> Result<ResponseStream, ApiError> {
         let (tx_event, rx_event) =
             mpsc::channel::<std::result::Result<ResponseEvent, ApiError>>(1600);
@@ -224,9 +226,13 @@ impl ResponsesWebsocketConnection {
         let models_etag = self.models_etag.clone();
         let server_model = self.server_model.clone();
         let telemetry = self.telemetry.clone();
-        let request_body = serde_json::to_value(&request).map_err(|err| {
+        let mut request_body = serde_json::to_value(&request).map_err(|err| {
             ApiError::Stream(format!("failed to encode websocket request: {err}"))
         })?;
+        if include_item_ids {
+            let ResponsesWsRequest::ResponseCreate(request) = &request;
+            attach_all_response_item_ids_to_input(&mut request_body, &request.input);
+        }
 
         let current_span = Span::current();
         tokio::spawn(
