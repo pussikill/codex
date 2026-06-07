@@ -18,7 +18,6 @@ use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AdditionalContextEntry;
 use codex_protocol::protocol::AskForApproval;
@@ -399,12 +398,8 @@ impl CodexThread {
 
     /// Records a user-role session-prefix message without creating a new user turn boundary.
     pub(crate) async fn inject_user_message_without_turn(&self, message: String) {
-        let item = ResponseItem::Message {
-            id: Some(ResponseItemIdKind::Message.new_id()),
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText { text: message }],
-            phase: None,
-        };
+        let item =
+            ResponseItem::new_message("user", vec![ContentItem::InputText { text: message }]);
         self.codex
             .session
             .inject_no_new_turn(vec![item], /*current_turn_context*/ None)

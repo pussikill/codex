@@ -4,7 +4,6 @@ use crate::models::ContentItem;
 use crate::models::ImageDetail;
 use crate::models::MessagePhase;
 use crate::models::ResponseItem;
-use crate::models::ResponseItemIdKind;
 use crate::models::WebSearchAction;
 use crate::protocol::AgentMessageEvent;
 use crate::protocol::AgentReasoningEvent;
@@ -387,12 +386,7 @@ pub fn build_hook_prompt_message(fragments: &[HookPromptFragment]) -> Option<Res
         return None;
     }
 
-    Some(ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "user".to_string(),
-        content,
-        phase: None,
-    })
+    Some(ResponseItem::new_message("user", content))
 }
 
 pub fn parse_hook_prompt_message(

@@ -140,7 +140,6 @@ mod tests {
     use codex_protocol::items::WebSearchItem;
     use codex_protocol::models::ContentItem;
     use codex_protocol::models::ResponseItem;
-    use codex_protocol::models::ResponseItemIdKind;
     use codex_protocol::models::WebSearchAction;
     use codex_protocol::protocol::EventMsg;
     use codex_tools::ExtensionTurnItem;
@@ -288,14 +287,12 @@ mod tests {
         let turn_id = turn.sub_id.clone();
         let model = turn.model_info.slug.clone();
         let truncation_policy = turn.truncation_policy;
-        let history_item = ResponseItem::Message {
-            id: Some(ResponseItemIdKind::Message.new_id()),
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
+        let history_item = ResponseItem::new_message(
+            "user",
+            vec![ContentItem::InputText {
                 text: "extension history".to_string(),
             }],
-            phase: None,
-        };
+        );
         session
             .record_conversation_items(&turn, std::slice::from_ref(&history_item))
             .await;

@@ -930,11 +930,10 @@ pub enum ResponseItem {
     Other,
 }
 
-/// Responses API item kinds for stable IDs Codex assigns to new local prompt items.
+/// Responses API item kinds for stable IDs Codex assigns to new local response items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResponseItemIdKind {
+enum ResponseItemIdKind {
     Message,
-    AgentMessage,
     FunctionCallOutput,
     CustomToolCallOutput,
     ToolSearchOutput,
@@ -944,7 +943,6 @@ impl ResponseItemIdKind {
     fn prefix(self) -> &'static str {
         match self {
             Self::Message => "msg",
-            Self::AgentMessage => "amsg",
             Self::FunctionCallOutput => "fco",
             Self::CustomToolCallOutput => "ctco",
             Self::ToolSearchOutput => "tso",
@@ -958,6 +956,71 @@ impl ResponseItemIdKind {
 }
 
 impl ResponseItem {
+    /// Constructs a new Codex-owned message with a fresh stable Responses API ID.
+    pub fn new_message(role: impl Into<String>, content: Vec<ContentItem>) -> Self {
+        Self::Message {
+            id: Some(ResponseItemIdKind::Message.new_id()),
+            role: role.into(),
+            content,
+            phase: None,
+        }
+    }
+
+    /// Constructs a new Codex-owned function call output with a fresh stable Responses API ID.
+    pub fn new_function_call_output(
+        call_id: impl Into<String>,
+        output: FunctionCallOutputPayload,
+    ) -> Self {
+        Self::FunctionCallOutput {
+            id: Some(ResponseItemIdKind::FunctionCallOutput.new_id()),
+            call_id: call_id.into(),
+            output,
+        }
+    }
+
+    /// Constructs a new Codex-owned unnamed custom tool output with a fresh stable Responses API ID.
+    pub fn new_custom_tool_call_output(
+        call_id: impl Into<String>,
+        output: FunctionCallOutputPayload,
+    ) -> Self {
+        Self::CustomToolCallOutput {
+            id: Some(ResponseItemIdKind::CustomToolCallOutput.new_id()),
+            call_id: call_id.into(),
+            name: None,
+            output,
+        }
+    }
+
+    /// Constructs a new Codex-owned named custom tool output with a fresh stable Responses API ID.
+    pub fn new_named_custom_tool_call_output(
+        call_id: impl Into<String>,
+        name: impl Into<String>,
+        output: FunctionCallOutputPayload,
+    ) -> Self {
+        Self::CustomToolCallOutput {
+            id: Some(ResponseItemIdKind::CustomToolCallOutput.new_id()),
+            call_id: call_id.into(),
+            name: Some(name.into()),
+            output,
+        }
+    }
+
+    /// Constructs a new Codex-owned tool search output with a fresh stable Responses API ID.
+    pub fn new_tool_search_output(
+        call_id: impl Into<String>,
+        status: impl Into<String>,
+        execution: impl Into<String>,
+        tools: Vec<Value>,
+    ) -> Self {
+        Self::ToolSearchOutput {
+            id: Some(ResponseItemIdKind::ToolSearchOutput.new_id()),
+            call_id: Some(call_id.into()),
+            status: status.into(),
+            execution: execution.into(),
+            tools,
+        }
+    }
+
     pub fn id(&self) -> Option<&str> {
         match self {
             Self::Message { id, .. }
@@ -1214,46 +1277,32 @@ impl From<ResponseInputItem> for ResponseItem {
                 content,
                 phase,
             } => Self::Message {
+                id: Some(ResponseItemIdKind::Message.new_id()),
                 role,
                 content,
-                id: Some(ResponseItemIdKind::Message.new_id()),
                 phase,
             },
-            ResponseInputItem::FunctionCallOutput { call_id, output } => Self::FunctionCallOutput {
-                id: Some(ResponseItemIdKind::FunctionCallOutput.new_id()),
-                call_id,
-                output,
-            },
+            ResponseInputItem::FunctionCallOutput { call_id, output } => {
+                Self::new_function_call_output(call_id, output)
+            }
             ResponseInputItem::McpToolCallOutput { call_id, output } => {
                 let output = output.into_function_call_output_payload();
-                Self::FunctionCallOutput {
-                    id: Some(ResponseItemIdKind::FunctionCallOutput.new_id()),
-                    call_id,
-                    output,
-                }
+                Self::new_function_call_output(call_id, output)
             }
             ResponseInputItem::CustomToolCallOutput {
                 call_id,
                 name,
                 output,
-            } => Self::CustomToolCallOutput {
-                id: Some(ResponseItemIdKind::CustomToolCallOutput.new_id()),
-                call_id,
-                name,
-                output,
+            } => match name {
+                Some(name) => Self::new_named_custom_tool_call_output(call_id, name, output),
+                None => Self::new_custom_tool_call_output(call_id, output),
             },
             ResponseInputItem::ToolSearchOutput {
                 call_id,
                 status,
                 execution,
                 tools,
-            } => Self::ToolSearchOutput {
-                id: Some(ResponseItemIdKind::ToolSearchOutput.new_id()),
-                call_id: Some(call_id),
-                status,
-                execution,
-                tools,
-            },
+            } => Self::new_tool_search_output(call_id, status, execution, tools),
         }
     }
 }
@@ -1784,15 +1833,29 @@ mod tests {
     }
 
     #[test]
-    fn new_client_generated_response_item_ids_use_responses_api_prefixes() {
-        for (kind, prefix) in [
-            (ResponseItemIdKind::Message, "msg"),
-            (ResponseItemIdKind::AgentMessage, "amsg"),
-            (ResponseItemIdKind::FunctionCallOutput, "fco"),
-            (ResponseItemIdKind::CustomToolCallOutput, "ctco"),
-            (ResponseItemIdKind::ToolSearchOutput, "tso"),
+    fn new_codex_owned_response_items_use_responses_api_prefixes() {
+        for (item, prefix) in [
+            (ResponseItem::new_message("user", Vec::new()), "msg"),
+            (
+                ResponseItem::new_function_call_output(
+                    "call_1",
+                    FunctionCallOutputPayload::from_text("ok".to_string()),
+                ),
+                "fco",
+            ),
+            (
+                ResponseItem::new_custom_tool_call_output(
+                    "call_1",
+                    FunctionCallOutputPayload::from_text("ok".to_string()),
+                ),
+                "ctco",
+            ),
+            (
+                ResponseItem::new_tool_search_output("call_1", "completed", "client", Vec::new()),
+                "tso",
+            ),
         ] {
-            let id = kind.new_id();
+            let id = item.id().expect("new Codex-owned item id");
             assert!(id.starts_with(&format!("{prefix}_")), "unexpected id: {id}");
         }
     }

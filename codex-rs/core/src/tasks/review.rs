@@ -6,7 +6,6 @@ use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::items::TurnItem;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::protocol::AgentMessageContentDeltaEvent;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::Event;
@@ -241,12 +240,10 @@ pub(crate) async fn exit_review_mode(
     session
         .record_conversation_items(
             &ctx,
-            &[ResponseItem::Message {
-                id: Some(ResponseItemIdKind::Message.new_id()),
-                role: "user".to_string(),
-                content: vec![ContentItem::InputText { text: user_message }],
-                phase: None,
-            }],
+            &[ResponseItem::new_message(
+                "user",
+                vec![ContentItem::InputText { text: user_message }],
+            )],
         )
         .await;
 
@@ -259,14 +256,12 @@ pub(crate) async fn exit_review_mode(
     session
         .record_response_item_and_emit_turn_item(
             ctx.as_ref(),
-            ResponseItem::Message {
-                id: Some(ResponseItemIdKind::Message.new_id()),
-                role: "assistant".to_string(),
-                content: vec![ContentItem::OutputText {
+            ResponseItem::new_message(
+                "assistant",
+                vec![ContentItem::OutputText {
                     text: assistant_message,
                 }],
-                phase: None,
-            },
+            ),
         )
         .await;
 

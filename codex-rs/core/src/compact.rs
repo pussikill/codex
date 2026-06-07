@@ -30,7 +30,6 @@ use codex_protocol::items::TurnItem;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::protocol::CompactedItem;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::TurnStartedEvent;
@@ -536,14 +535,12 @@ fn build_compacted_history_with_limit(
     }
 
     for message in &selected_messages {
-        history.push(ResponseItem::Message {
-            id: Some(ResponseItemIdKind::Message.new_id()),
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
+        history.push(ResponseItem::new_message(
+            "user",
+            vec![ContentItem::InputText {
                 text: message.clone(),
             }],
-            phase: None,
-        });
+        ));
     }
 
     let summary_text = if summary_text.is_empty() {
@@ -552,12 +549,10 @@ fn build_compacted_history_with_limit(
         summary_text.to_string()
     };
 
-    history.push(ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "user".to_string(),
-        content: vec![ContentItem::InputText { text: summary_text }],
-        phase: None,
-    });
+    history.push(ResponseItem::new_message(
+        "user",
+        vec![ContentItem::InputText { text: summary_text }],
+    ));
 
     history
 }

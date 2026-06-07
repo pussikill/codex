@@ -43,7 +43,6 @@ use codex_protocol::models::FileSystemPermissions;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::PermissionProfile;
-use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::SandboxEnforcement;
 use codex_protocol::openai_models::ModelServiceTier;
 use codex_protocol::permissions::FileSystemAccessMode;
@@ -202,6 +201,7 @@ fn assistant_message(text: &str) -> ResponseItem {
 fn without_response_item_id(mut item: ResponseItem) -> ResponseItem {
     match &mut item {
         ResponseItem::Message { id, .. }
+        | ResponseItem::AgentMessage { id, .. }
         | ResponseItem::LocalShellCall { id, .. }
         | ResponseItem::FunctionCall { id, .. }
         | ResponseItem::ToolSearchCall { id, .. }
@@ -214,8 +214,7 @@ fn without_response_item_id(mut item: ResponseItem) -> ResponseItem {
         ResponseItem::Reasoning { id, .. } | ResponseItem::ImageGenerationCall { id, .. } => {
             id.clear();
         }
-        ResponseItem::AgentMessage { .. }
-        | ResponseItem::CompactionTrigger
+        ResponseItem::CompactionTrigger
         | ResponseItem::ContextCompaction { .. }
         | ResponseItem::Other => {}
     }
@@ -9613,28 +9612,24 @@ async fn sample_rollout(
         reconstruction_turn.truncation_policy,
     );
 
-    let user1 = ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "user".to_string(),
-        content: vec![ContentItem::InputText {
+    let user1 = ResponseItem::new_message(
+        "user",
+        vec![ContentItem::InputText {
             text: "first user".to_string(),
         }],
-        phase: None,
-    };
+    );
     live_history.record_items(
         std::iter::once(&user1),
         reconstruction_turn.truncation_policy,
     );
     rollout_items.push(RolloutItem::ResponseItem(user1.clone()));
 
-    let assistant1 = ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "assistant".to_string(),
-        content: vec![ContentItem::OutputText {
+    let assistant1 = ResponseItem::new_message(
+        "assistant",
+        vec![ContentItem::OutputText {
             text: "assistant reply one".to_string(),
         }],
-        phase: None,
-    };
+    );
     live_history.record_items(
         std::iter::once(&assistant1),
         reconstruction_turn.truncation_policy,
@@ -9653,28 +9648,24 @@ async fn sample_rollout(
         replacement_history: Some(rebuilt1),
     }));
 
-    let user2 = ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "user".to_string(),
-        content: vec![ContentItem::InputText {
+    let user2 = ResponseItem::new_message(
+        "user",
+        vec![ContentItem::InputText {
             text: "second user".to_string(),
         }],
-        phase: None,
-    };
+    );
     live_history.record_items(
         std::iter::once(&user2),
         reconstruction_turn.truncation_policy,
     );
     rollout_items.push(RolloutItem::ResponseItem(user2.clone()));
 
-    let assistant2 = ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "assistant".to_string(),
-        content: vec![ContentItem::OutputText {
+    let assistant2 = ResponseItem::new_message(
+        "assistant",
+        vec![ContentItem::OutputText {
             text: "assistant reply two".to_string(),
         }],
-        phase: None,
-    };
+    );
     live_history.record_items(
         std::iter::once(&assistant2),
         reconstruction_turn.truncation_policy,
@@ -9693,28 +9684,24 @@ async fn sample_rollout(
         replacement_history: Some(rebuilt2),
     }));
 
-    let user3 = ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "user".to_string(),
-        content: vec![ContentItem::InputText {
+    let user3 = ResponseItem::new_message(
+        "user",
+        vec![ContentItem::InputText {
             text: "third user".to_string(),
         }],
-        phase: None,
-    };
+    );
     live_history.record_items(
         std::iter::once(&user3),
         reconstruction_turn.truncation_policy,
     );
     rollout_items.push(RolloutItem::ResponseItem(user3));
 
-    let assistant3 = ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: "assistant".to_string(),
-        content: vec![ContentItem::OutputText {
+    let assistant3 = ResponseItem::new_message(
+        "assistant",
+        vec![ContentItem::OutputText {
             text: "assistant reply three".to_string(),
         }],
-        phase: None,
-    };
+    );
     live_history.record_items(
         std::iter::once(&assistant3),
         reconstruction_turn.truncation_policy,

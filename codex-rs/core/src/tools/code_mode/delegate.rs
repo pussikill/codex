@@ -9,7 +9,6 @@ use codex_code_mode::NotificationFuture;
 use codex_code_mode::ToolInvocationFuture;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::models::ResponseItemIdKind;
 use serde_json::Value as JsonValue;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
@@ -299,12 +298,11 @@ impl CoreTurnHost {
         }
         self.exec
             .session
-            .inject_if_running(vec![ResponseItem::CustomToolCallOutput {
-                id: Some(ResponseItemIdKind::CustomToolCallOutput.new_id()),
+            .inject_if_running(vec![ResponseItem::new_named_custom_tool_call_output(
                 call_id,
-                name: Some(PUBLIC_TOOL_NAME.to_string()),
-                output: FunctionCallOutputPayload::from_text(text),
-            }])
+                PUBLIC_TOOL_NAME,
+                FunctionCallOutputPayload::from_text(text),
+            )])
             .await
             .map_err(|_| {
                 format!("failed to inject exec notify message for cell {cell_id}: no active turn")

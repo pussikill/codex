@@ -15,7 +15,6 @@ use codex_features::Feature;
 use codex_protocol::config_types::Personality;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::TurnContextItem;
 
@@ -199,12 +198,7 @@ fn build_text_message(role: &str, text_sections: Vec<String>) -> Option<Response
         .map(|text| ContentItem::InputText { text })
         .collect();
 
-    Some(ResponseItem::Message {
-        id: Some(ResponseItemIdKind::Message.new_id()),
-        role: role.to_string(),
-        content,
-        phase: None,
-    })
+    Some(ResponseItem::new_message(role, content))
 }
 
 pub(crate) fn build_settings_update_items(

@@ -5,7 +5,7 @@ use crate::common::ResponsesWsRequest;
 use crate::error::ApiError;
 use crate::provider::Provider;
 use crate::rate_limits::parse_rate_limit_event;
-use crate::requests::attach_all_response_item_ids_to_input;
+use crate::requests::attach_stateless_response_item_ids;
 use crate::sse::ResponsesStreamEvent;
 use crate::sse::process_responses_event;
 use crate::telemetry::WebsocketTelemetry;
@@ -231,7 +231,7 @@ impl ResponsesWebsocketConnection {
         })?;
         if include_item_ids_for_stateless_mode {
             let ResponsesWsRequest::ResponseCreate(request) = &request;
-            attach_all_response_item_ids_to_input(&mut request_body, &request.input);
+            attach_stateless_response_item_ids(&mut request_body, &request.input);
         }
 
         let current_span = Span::current();

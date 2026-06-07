@@ -2578,13 +2578,12 @@ impl Session {
         turn_context: &TurnContext,
         items: &[ResponseItem],
     ) {
-        let items = items.to_vec();
         {
             let mut state = self.state.lock().await;
             state.record_items(items.iter(), turn_context.truncation_policy);
         }
-        self.persist_rollout_response_items(&items).await;
-        self.send_raw_response_items(turn_context, &items).await;
+        self.persist_rollout_response_items(items).await;
+        self.send_raw_response_items(turn_context, items).await;
     }
 
     async fn maybe_warn_on_server_model_mismatch(

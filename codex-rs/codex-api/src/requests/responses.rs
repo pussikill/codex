@@ -51,7 +51,7 @@ pub(crate) fn attach_stateful_response_item_ids(
 /// item identity when Codex explicitly puts each known ID back into the serialized `input` array.
 /// This includes Codex-generated IDs for new local prompt items and IDs preserved from server
 /// output, compaction, and rollout replay.
-pub(crate) fn attach_all_response_item_ids_to_input(
+pub(crate) fn attach_stateless_response_item_ids(
     payload_json: &mut Value,
     original_items: &[ResponseItem],
 ) {
@@ -77,7 +77,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn attaches_all_response_item_ids_to_input_json() {
+    fn attaches_stateless_response_item_ids_to_input_json() {
         let items = vec![
             ResponseItem::Message {
                 id: Some("msg_1".to_string()),
@@ -175,7 +175,7 @@ mod tests {
             "input": serde_json::to_value(&items).expect("serialize input"),
         });
 
-        attach_all_response_item_ids_to_input(&mut payload, &items);
+        attach_stateless_response_item_ids(&mut payload, &items);
 
         let ids = payload["input"]
             .as_array()
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn attach_all_response_item_ids_leaves_missing_ids_unchanged() {
+    fn attach_stateless_response_item_ids_leaves_missing_ids_unchanged() {
         let items = vec![ResponseItem::Message {
             id: None,
             role: "user".to_string(),
@@ -204,7 +204,7 @@ mod tests {
             "input": serde_json::to_value(&items).expect("serialize input"),
         });
 
-        attach_all_response_item_ids_to_input(&mut payload, &items);
+        attach_stateless_response_item_ids(&mut payload, &items);
 
         assert_eq!(payload["input"][0].get("id"), None);
     }
