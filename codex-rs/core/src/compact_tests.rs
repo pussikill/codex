@@ -216,12 +216,12 @@ fn build_token_limited_compacted_history_appends_summary_message() {
 }
 
 #[test]
-fn assign_client_generated_ids_marks_new_compacted_messages() {
-    let history = assign_client_generated_ids(build_compacted_history(
+fn build_compacted_history_marks_new_compacted_messages() {
+    let history = build_compacted_history(
         Vec::new(),
         &["first user message".to_string()],
         "summary text",
-    ));
+    );
 
     assert!(
         history

@@ -13,6 +13,7 @@ use crate::shell::Shell;
 use codex_execpolicy::Policy;
 use codex_features::Feature;
 use codex_protocol::config_types::Personality;
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
@@ -198,15 +199,12 @@ fn build_text_message(role: &str, text_sections: Vec<String>) -> Option<Response
         .map(|text| ContentItem::InputText { text })
         .collect();
 
-    Some(
-        ResponseItem::Message {
-            id: None,
-            role: role.to_string(),
-            content,
-            phase: None,
-        }
-        .with_id_if_missing(),
-    )
+    Some(ResponseItem::Message {
+        id: Some(ResponseItemIdKind::Message.new_id()),
+        role: role.to_string(),
+        content,
+        phase: None,
+    })
 }
 
 pub(crate) fn build_settings_update_items(

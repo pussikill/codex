@@ -1,6 +1,7 @@
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::models::ResponseItemIdKind;
 
 /// Type-erased registration for a contextual user fragment.
 ///
@@ -77,26 +78,24 @@ pub trait ContextualUserFragment {
         Self: Sized,
     {
         ResponseItem::Message {
-            id: None,
+            id: Some(ResponseItemIdKind::Message.new_id()),
             role: self.role().to_string(),
             content: vec![ContentItem::InputText {
                 text: self.render(),
             }],
             phase: None,
         }
-        .with_id_if_missing()
     }
 
     fn into_boxed_response_item(self: Box<Self>) -> ResponseItem {
         ResponseItem::Message {
-            id: None,
+            id: Some(ResponseItemIdKind::Message.new_id()),
             role: self.role().to_string(),
             content: vec![ContentItem::InputText {
                 text: self.render(),
             }],
             phase: None,
         }
-        .with_id_if_missing()
     }
 
     fn into_response_input_item(self) -> ResponseInputItem

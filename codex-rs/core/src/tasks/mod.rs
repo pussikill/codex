@@ -52,6 +52,7 @@ use codex_protocol::protocol::TurnCompleteEvent;
 use codex_protocol::protocol::WarningEvent;
 
 use codex_features::Feature;
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::ContentItem;
 pub(crate) use compact::CompactTask;
 pub(crate) use regular::RegularTask;
@@ -100,17 +101,14 @@ pub(crate) fn interrupted_turn_history_marker(
             let marker = crate::context::TurnAborted::new(
                 crate::context::TurnAborted::INTERRUPTED_DEVELOPER_GUIDANCE,
             );
-            Some(
-                ResponseItem::Message {
-                    id: None,
-                    role: "developer".to_string(),
-                    content: vec![ContentItem::InputText {
-                        text: marker.render(),
-                    }],
-                    phase: None,
-                }
-                .with_id_if_missing(),
-            )
+            Some(ResponseItem::Message {
+                id: Some(ResponseItemIdKind::Message.new_id()),
+                role: "developer".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: marker.render(),
+                }],
+                phase: None,
+            })
         }
     }
 }

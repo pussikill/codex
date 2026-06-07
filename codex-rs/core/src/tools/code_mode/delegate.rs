@@ -7,6 +7,7 @@ use codex_code_mode::CodeModeNestedToolCall;
 use codex_code_mode::CodeModeSessionDelegate;
 use codex_code_mode::NotificationFuture;
 use codex_code_mode::ToolInvocationFuture;
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
 use serde_json::Value as JsonValue;
@@ -298,15 +299,12 @@ impl CoreTurnHost {
         }
         self.exec
             .session
-            .inject_if_running(vec![
-                ResponseItem::CustomToolCallOutput {
-                    id: None,
-                    call_id,
-                    name: Some(PUBLIC_TOOL_NAME.to_string()),
-                    output: FunctionCallOutputPayload::from_text(text),
-                }
-                .with_id_if_missing(),
-            ])
+            .inject_if_running(vec![ResponseItem::CustomToolCallOutput {
+                id: Some(ResponseItemIdKind::CustomToolCallOutput.new_id()),
+                call_id,
+                name: Some(PUBLIC_TOOL_NAME.to_string()),
+                output: FunctionCallOutputPayload::from_text(text),
+            }])
             .await
             .map_err(|_| {
                 format!("failed to inject exec notify message for cell {cell_id}: no active turn")

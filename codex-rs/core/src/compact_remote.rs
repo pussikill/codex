@@ -4,7 +4,6 @@ use crate::Prompt;
 use crate::client::CompactConversationRequestSettings;
 use crate::compact::CompactionAnalyticsAttempt;
 use crate::compact::InitialContextInjection;
-use crate::compact::assign_client_generated_ids;
 use crate::compact::compaction_status_from_result;
 use crate::compact::insert_initial_context_before_last_real_user_or_summary;
 use crate::context_manager::ContextManager;
@@ -313,7 +312,7 @@ pub(crate) async fn process_compacted_history(
         initial_context_injection,
         InitialContextInjection::BeforeLastUserMessage
     ) {
-        assign_client_generated_ids(sess.build_initial_context(turn_context).await)
+        sess.build_initial_context(turn_context).await
     } else {
         Vec::new()
     };

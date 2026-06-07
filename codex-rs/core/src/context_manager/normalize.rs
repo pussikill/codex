@@ -1,3 +1,4 @@
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
@@ -32,11 +33,12 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                     missing_outputs_to_insert.push((
                         idx,
                         ResponseItem::FunctionCallOutput {
-                            id: None,
+                            id: Some(
+                                ResponseItemIdKind::FunctionCallOutput.new_id(),
+                            ),
                             call_id: call_id.clone(),
                             output: FunctionCallOutputPayload::from_text("aborted".to_string()),
-                        }
-                        .with_id_if_missing(),
+                        },
                     ));
                 }
             }
@@ -57,13 +59,12 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                     missing_outputs_to_insert.push((
                         idx,
                         ResponseItem::ToolSearchOutput {
-                            id: None,
+                            id: Some(ResponseItemIdKind::ToolSearchOutput.new_id()),
                             call_id: Some(call_id.clone()),
                             status: "completed".to_string(),
                             execution: "client".to_string(),
                             tools: Vec::new(),
-                        }
-                        .with_id_if_missing(),
+                        },
                     ));
                 }
             }
@@ -82,12 +83,13 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                     missing_outputs_to_insert.push((
                         idx,
                         ResponseItem::CustomToolCallOutput {
-                            id: None,
+                            id: Some(
+                                ResponseItemIdKind::CustomToolCallOutput.new_id(),
+                            ),
                             call_id: call_id.clone(),
                             name: None,
                             output: FunctionCallOutputPayload::from_text("aborted".to_string()),
-                        }
-                        .with_id_if_missing(),
+                        },
                     ));
                 }
             }
@@ -108,11 +110,12 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                         missing_outputs_to_insert.push((
                             idx,
                             ResponseItem::FunctionCallOutput {
-                                id: None,
+                                id: Some(
+                                    ResponseItemIdKind::FunctionCallOutput.new_id(),
+                                ),
                                 call_id: call_id.clone(),
                                 output: FunctionCallOutputPayload::from_text("aborted".to_string()),
-                            }
-                            .with_id_if_missing(),
+                            },
                         ));
                     }
                 }

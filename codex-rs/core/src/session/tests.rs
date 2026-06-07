@@ -39,6 +39,7 @@ use codex_protocol::config_types::TrustLevel;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::FileSystemPermissions;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputPayload;
@@ -9604,10 +9605,6 @@ async fn sample_rollout(
             .unwrap_or(0);
         initial_context.insert(insert_at, msg);
     }
-    let initial_context = initial_context
-        .into_iter()
-        .map(ResponseItem::with_id_if_missing)
-        .collect::<Vec<_>>();
     for item in &initial_context {
         rollout_items.push(RolloutItem::ResponseItem(item.clone()));
     }
@@ -9617,14 +9614,13 @@ async fn sample_rollout(
     );
 
     let user1 = ResponseItem::Message {
-        id: None,
+        id: Some(ResponseItemIdKind::Message.new_id()),
         role: "user".to_string(),
         content: vec![ContentItem::InputText {
             text: "first user".to_string(),
         }],
         phase: None,
-    }
-    .with_id_if_missing();
+    };
     live_history.record_items(
         std::iter::once(&user1),
         reconstruction_turn.truncation_policy,
@@ -9632,14 +9628,13 @@ async fn sample_rollout(
     rollout_items.push(RolloutItem::ResponseItem(user1.clone()));
 
     let assistant1 = ResponseItem::Message {
-        id: None,
+        id: Some(ResponseItemIdKind::Message.new_id()),
         role: "assistant".to_string(),
         content: vec![ContentItem::OutputText {
             text: "assistant reply one".to_string(),
         }],
         phase: None,
-    }
-    .with_id_if_missing();
+    };
     live_history.record_items(
         std::iter::once(&assistant1),
         reconstruction_turn.truncation_policy,
@@ -9651,10 +9646,7 @@ async fn sample_rollout(
         .clone()
         .for_prompt(&reconstruction_turn.model_info.input_modalities);
     let user_messages1 = collect_user_messages(&snapshot1);
-    let rebuilt1 = compact::build_compacted_history(Vec::new(), &user_messages1, summary1)
-        .into_iter()
-        .map(ResponseItem::with_id_if_missing)
-        .collect::<Vec<_>>();
+    let rebuilt1 = compact::build_compacted_history(Vec::new(), &user_messages1, summary1);
     live_history.replace(rebuilt1.clone());
     rollout_items.push(RolloutItem::Compacted(CompactedItem {
         message: summary1.to_string(),
@@ -9662,14 +9654,13 @@ async fn sample_rollout(
     }));
 
     let user2 = ResponseItem::Message {
-        id: None,
+        id: Some(ResponseItemIdKind::Message.new_id()),
         role: "user".to_string(),
         content: vec![ContentItem::InputText {
             text: "second user".to_string(),
         }],
         phase: None,
-    }
-    .with_id_if_missing();
+    };
     live_history.record_items(
         std::iter::once(&user2),
         reconstruction_turn.truncation_policy,
@@ -9677,14 +9668,13 @@ async fn sample_rollout(
     rollout_items.push(RolloutItem::ResponseItem(user2.clone()));
 
     let assistant2 = ResponseItem::Message {
-        id: None,
+        id: Some(ResponseItemIdKind::Message.new_id()),
         role: "assistant".to_string(),
         content: vec![ContentItem::OutputText {
             text: "assistant reply two".to_string(),
         }],
         phase: None,
-    }
-    .with_id_if_missing();
+    };
     live_history.record_items(
         std::iter::once(&assistant2),
         reconstruction_turn.truncation_policy,
@@ -9696,10 +9686,7 @@ async fn sample_rollout(
         .clone()
         .for_prompt(&reconstruction_turn.model_info.input_modalities);
     let user_messages2 = collect_user_messages(&snapshot2);
-    let rebuilt2 = compact::build_compacted_history(Vec::new(), &user_messages2, summary2)
-        .into_iter()
-        .map(ResponseItem::with_id_if_missing)
-        .collect::<Vec<_>>();
+    let rebuilt2 = compact::build_compacted_history(Vec::new(), &user_messages2, summary2);
     live_history.replace(rebuilt2.clone());
     rollout_items.push(RolloutItem::Compacted(CompactedItem {
         message: summary2.to_string(),
@@ -9707,14 +9694,13 @@ async fn sample_rollout(
     }));
 
     let user3 = ResponseItem::Message {
-        id: None,
+        id: Some(ResponseItemIdKind::Message.new_id()),
         role: "user".to_string(),
         content: vec![ContentItem::InputText {
             text: "third user".to_string(),
         }],
         phase: None,
-    }
-    .with_id_if_missing();
+    };
     live_history.record_items(
         std::iter::once(&user3),
         reconstruction_turn.truncation_policy,
@@ -9722,14 +9708,13 @@ async fn sample_rollout(
     rollout_items.push(RolloutItem::ResponseItem(user3));
 
     let assistant3 = ResponseItem::Message {
-        id: None,
+        id: Some(ResponseItemIdKind::Message.new_id()),
         role: "assistant".to_string(),
         content: vec![ContentItem::OutputText {
             text: "assistant reply three".to_string(),
         }],
         phase: None,
-    }
-    .with_id_if_missing();
+    };
     live_history.record_items(
         std::iter::once(&assistant3),
         reconstruction_turn.truncation_policy,

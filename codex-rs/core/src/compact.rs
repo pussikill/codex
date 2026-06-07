@@ -27,6 +27,7 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::items::ContextCompactionItem;
 use codex_protocol::items::TurnItem;
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
@@ -65,17 +66,6 @@ pub(crate) enum InitialContextInjection {
 
 pub(crate) fn should_use_remote_compact_task(provider: &ModelProviderInfo) -> bool {
     provider.supports_remote_compaction()
-}
-
-/// Assigns stable Responses API IDs to newly created Codex-owned compaction items.
-///
-/// Do not use this for server-returned or rollout-loaded history, where a missing ID must remain
-/// omitted instead of inventing a new identity during replay.
-pub(crate) fn assign_client_generated_ids(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
-    items
-        .into_iter()
-        .map(ResponseItem::with_id_if_missing)
-        .collect()
 }
 
 pub(crate) async fn run_inline_auto_compact_task(
@@ -313,7 +303,6 @@ async fn run_compact_task_inner_impl(
         new_history =
             insert_initial_context_before_last_real_user_or_summary(new_history, initial_context);
     }
-    let new_history = assign_client_generated_ids(new_history);
     let reference_context_item = match initial_context_injection {
         InitialContextInjection::DoNotInject => None,
         InitialContextInjection::BeforeLastUserMessage => Some(turn_context.to_turn_context_item()),
@@ -548,7 +537,7 @@ fn build_compacted_history_with_limit(
 
     for message in &selected_messages {
         history.push(ResponseItem::Message {
-            id: None,
+            id: Some(ResponseItemIdKind::Message.new_id()),
             role: "user".to_string(),
             content: vec![ContentItem::InputText {
                 text: message.clone(),
@@ -564,7 +553,7 @@ fn build_compacted_history_with_limit(
     };
 
     history.push(ResponseItem::Message {
-        id: None,
+        id: Some(ResponseItemIdKind::Message.new_id()),
         role: "user".to_string(),
         content: vec![ContentItem::InputText { text: summary_text }],
         phase: None,

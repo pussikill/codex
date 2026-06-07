@@ -930,8 +930,9 @@ pub enum ResponseItem {
     Other,
 }
 
+/// Responses API item kinds for stable IDs Codex assigns to new local prompt items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClientGeneratedResponseItemIdKind {
+pub enum ResponseItemIdKind {
     Message,
     AgentMessage,
     FunctionCallOutput,
@@ -939,7 +940,7 @@ enum ClientGeneratedResponseItemIdKind {
     ToolSearchOutput,
 }
 
-impl ClientGeneratedResponseItemIdKind {
+impl ResponseItemIdKind {
     fn prefix(self) -> &'static str {
         match self {
             Self::Message => "msg",
@@ -949,103 +950,14 @@ impl ClientGeneratedResponseItemIdKind {
             Self::ToolSearchOutput => "tso",
         }
     }
-}
 
-fn new_client_generated_response_item_id(kind: ClientGeneratedResponseItemIdKind) -> String {
-    format!("{}_{}", kind.prefix(), Uuid::new_v4().simple())
-}
-
-fn client_generated_response_item_id(
-    id: Option<String>,
-    kind: ClientGeneratedResponseItemIdKind,
-) -> Option<String> {
-    Some(
-        id.filter(|id| !id.is_empty())
-            .unwrap_or_else(|| new_client_generated_response_item_id(kind)),
-    )
+    /// Generates a new stable Responses API item ID with this kind's server-recognized prefix.
+    pub fn new_id(self) -> String {
+        format!("{}_{}", self.prefix(), Uuid::new_v4().simple())
+    }
 }
 
 impl ResponseItem {
-    /// Ensures a newly created Codex-owned item has a stable Responses API ID.
-    ///
-    /// Do not use this for items loaded from rollout history: missing historical IDs must remain
-    /// omitted so replay does not invent new identities.
-    pub fn with_id_if_missing(self) -> Self {
-        match self {
-            Self::Message {
-                id,
-                role,
-                content,
-                phase,
-            } => Self::Message {
-                id: client_generated_response_item_id(
-                    id,
-                    ClientGeneratedResponseItemIdKind::Message,
-                ),
-                role,
-                content,
-                phase,
-            },
-            Self::AgentMessage {
-                id,
-                author,
-                recipient,
-                content,
-            } => Self::AgentMessage {
-                id: client_generated_response_item_id(
-                    id,
-                    ClientGeneratedResponseItemIdKind::AgentMessage,
-                ),
-                author,
-                recipient,
-                content,
-            },
-            Self::FunctionCallOutput {
-                id,
-                call_id,
-                output,
-            } => Self::FunctionCallOutput {
-                id: client_generated_response_item_id(
-                    id,
-                    ClientGeneratedResponseItemIdKind::FunctionCallOutput,
-                ),
-                call_id,
-                output,
-            },
-            Self::CustomToolCallOutput {
-                id,
-                call_id,
-                name,
-                output,
-            } => Self::CustomToolCallOutput {
-                id: client_generated_response_item_id(
-                    id,
-                    ClientGeneratedResponseItemIdKind::CustomToolCallOutput,
-                ),
-                call_id,
-                name,
-                output,
-            },
-            Self::ToolSearchOutput {
-                id,
-                call_id,
-                status,
-                execution,
-                tools,
-            } if execution == "client" => Self::ToolSearchOutput {
-                id: client_generated_response_item_id(
-                    id,
-                    ClientGeneratedResponseItemIdKind::ToolSearchOutput,
-                ),
-                call_id,
-                status,
-                execution,
-                tools,
-            },
-            item => item,
-        }
-    }
-
     pub fn id(&self) -> Option<&str> {
         match self {
             Self::Message { id, .. }
@@ -1311,27 +1223,18 @@ impl From<ResponseInputItem> for ResponseItem {
             } => Self::Message {
                 role,
                 content,
-                id: client_generated_response_item_id(
-                    /*id*/ None,
-                    ClientGeneratedResponseItemIdKind::Message,
-                ),
+                id: Some(ResponseItemIdKind::Message.new_id()),
                 phase,
             },
             ResponseInputItem::FunctionCallOutput { call_id, output } => Self::FunctionCallOutput {
-                id: client_generated_response_item_id(
-                    /*id*/ None,
-                    ClientGeneratedResponseItemIdKind::FunctionCallOutput,
-                ),
+                id: Some(ResponseItemIdKind::FunctionCallOutput.new_id()),
                 call_id,
                 output,
             },
             ResponseInputItem::McpToolCallOutput { call_id, output } => {
                 let output = output.into_function_call_output_payload();
                 Self::FunctionCallOutput {
-                    id: client_generated_response_item_id(
-                        /*id*/ None,
-                        ClientGeneratedResponseItemIdKind::FunctionCallOutput,
-                    ),
+                    id: Some(ResponseItemIdKind::FunctionCallOutput.new_id()),
                     call_id,
                     output,
                 }
@@ -1341,10 +1244,7 @@ impl From<ResponseInputItem> for ResponseItem {
                 name,
                 output,
             } => Self::CustomToolCallOutput {
-                id: client_generated_response_item_id(
-                    /*id*/ None,
-                    ClientGeneratedResponseItemIdKind::CustomToolCallOutput,
-                ),
+                id: Some(ResponseItemIdKind::CustomToolCallOutput.new_id()),
                 call_id,
                 name,
                 output,
@@ -1355,10 +1255,7 @@ impl From<ResponseInputItem> for ResponseItem {
                 execution,
                 tools,
             } => Self::ToolSearchOutput {
-                id: client_generated_response_item_id(
-                    /*id*/ None,
-                    ClientGeneratedResponseItemIdKind::ToolSearchOutput,
-                ),
+                id: Some(ResponseItemIdKind::ToolSearchOutput.new_id()),
                 call_id: Some(call_id),
                 status,
                 execution,
@@ -1894,120 +1791,17 @@ mod tests {
     }
 
     #[test]
-    fn client_generated_response_item_ids_preserve_existing_ids() {
-        let item = ResponseItem::Message {
-            id: Some("msg_existing".to_string()),
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: "still working".to_string(),
-            }],
-            phase: Some(MessagePhase::Commentary),
-        }
-        .with_id_if_missing();
-
-        assert_eq!(
-            item,
-            ResponseItem::Message {
-                id: Some("msg_existing".to_string()),
-                role: "user".to_string(),
-                content: vec![ContentItem::InputText {
-                    text: "still working".to_string(),
-                }],
-                phase: Some(MessagePhase::Commentary),
-            }
-        );
-    }
-
-    #[test]
     fn new_client_generated_response_item_ids_use_responses_api_prefixes() {
         for (kind, prefix) in [
-            (ClientGeneratedResponseItemIdKind::Message, "msg"),
-            (ClientGeneratedResponseItemIdKind::AgentMessage, "amsg"),
-            (ClientGeneratedResponseItemIdKind::FunctionCallOutput, "fco"),
-            (
-                ClientGeneratedResponseItemIdKind::CustomToolCallOutput,
-                "ctco",
-            ),
-            (ClientGeneratedResponseItemIdKind::ToolSearchOutput, "tso"),
+            (ResponseItemIdKind::Message, "msg"),
+            (ResponseItemIdKind::AgentMessage, "amsg"),
+            (ResponseItemIdKind::FunctionCallOutput, "fco"),
+            (ResponseItemIdKind::CustomToolCallOutput, "ctco"),
+            (ResponseItemIdKind::ToolSearchOutput, "tso"),
         ] {
-            let id = new_client_generated_response_item_id(kind);
+            let id = kind.new_id();
             assert!(id.starts_with(&format!("{prefix}_")), "unexpected id: {id}");
         }
-    }
-
-    #[test]
-    fn client_generated_response_item_ids_replace_empty_ids() {
-        let ResponseItem::Message { id: Some(id), .. } = ResponseItem::Message {
-            id: Some(String::new()),
-            role: "user".to_string(),
-            content: Vec::new(),
-            phase: None,
-        }
-        .with_id_if_missing() else {
-            panic!("expected message id");
-        };
-
-        assert!(id.starts_with("msg_"));
-    }
-
-    #[test]
-    fn synthetic_assistant_messages_can_get_client_generated_ids() {
-        let ResponseItem::Message { id: Some(id), .. } = ResponseItem::Message {
-            id: None,
-            role: "assistant".to_string(),
-            content: Vec::new(),
-            phase: None,
-        }
-        .with_id_if_missing() else {
-            panic!("expected message id");
-        };
-
-        assert!(id.starts_with("msg_"));
-    }
-
-    #[test]
-    fn client_generated_agent_messages_can_get_ids() {
-        let ResponseItem::AgentMessage { id: Some(id), .. } = ResponseItem::AgentMessage {
-            id: None,
-            author: "/root".to_string(),
-            recipient: "/root/worker".to_string(),
-            content: vec![AgentMessageInputContent::EncryptedContent {
-                encrypted_content: "opaque".to_string(),
-            }],
-        }
-        .with_id_if_missing() else {
-            panic!("expected agent message id");
-        };
-
-        assert!(id.starts_with("amsg_"));
-    }
-
-    #[test]
-    fn non_client_generated_response_items_keep_missing_ids() {
-        let reasoning = ResponseItem::Reasoning {
-            id: String::new(),
-            summary: Vec::new(),
-            content: None,
-            encrypted_content: Some("opaque".to_string()),
-        };
-        let compaction = ResponseItem::Compaction {
-            id: None,
-            encrypted_content: "opaque".to_string(),
-        };
-        let server_tool_search_output = ResponseItem::ToolSearchOutput {
-            id: None,
-            call_id: Some("call_search".to_string()),
-            status: "completed".to_string(),
-            execution: "server".to_string(),
-            tools: Vec::new(),
-        };
-
-        assert_eq!(reasoning.clone().with_id_if_missing(), reasoning);
-        assert_eq!(compaction.clone().with_id_if_missing(), compaction);
-        assert_eq!(
-            server_tool_search_output.clone().with_id_if_missing(),
-            server_tool_search_output
-        );
     }
 
     #[test]

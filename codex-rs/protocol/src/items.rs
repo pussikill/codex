@@ -1,5 +1,6 @@
 use crate::mcp::CallToolResult;
 use crate::memory_citation::MemoryCitation;
+use crate::models::ResponseItemIdKind;
 use crate::models::ContentItem;
 use crate::models::ImageDetail;
 use crate::models::MessagePhase;
@@ -386,15 +387,12 @@ pub fn build_hook_prompt_message(fragments: &[HookPromptFragment]) -> Option<Res
         return None;
     }
 
-    Some(
-        ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content,
-            phase: None,
-        }
-        .with_id_if_missing(),
-    )
+    Some(ResponseItem::Message {
+        id: Some(ResponseItemIdKind::Message.new_id()),
+        role: "user".to_string(),
+        content,
+        phase: None,
+    })
 }
 
 pub fn parse_hook_prompt_message(
