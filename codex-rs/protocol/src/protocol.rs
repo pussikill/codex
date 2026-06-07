@@ -4103,7 +4103,7 @@ mod tests {
             AgentPath::root().join("reviewer").expect("recipient path"),
             Vec::new(),
             "encrypted-payload".to_string(),
-            true,
+            /*trigger_turn*/ true,
         );
         let expected = ResponseItem::AgentMessage {
             id: Some("amsg_stable".to_string()),
@@ -4119,7 +4119,7 @@ mod tests {
             expected
         );
         assert_eq!(
-            communication.to_model_input_item(None),
+            communication.to_model_input_item(/*source_message_id*/ None),
             ResponseItem::AgentMessage {
                 id: None,
                 author: "/root".to_string(),

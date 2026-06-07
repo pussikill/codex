@@ -505,7 +505,28 @@ pub(crate) fn build_compacted_history(
         user_messages,
         summary_text,
         COMPACT_USER_MESSAGE_MAX_TOKENS,
+        CompactedHistoryMessageIds::New,
     )
+}
+
+pub(crate) fn rebuild_legacy_compacted_history(
+    initial_context: Vec<ResponseItem>,
+    user_messages: &[String],
+    summary_text: &str,
+) -> Vec<ResponseItem> {
+    build_compacted_history_with_limit(
+        initial_context,
+        user_messages,
+        summary_text,
+        COMPACT_USER_MESSAGE_MAX_TOKENS,
+        CompactedHistoryMessageIds::Missing,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum CompactedHistoryMessageIds {
+    New,
+    Missing,
 }
 
 fn build_compacted_history_with_limit(
@@ -513,6 +534,7 @@ fn build_compacted_history_with_limit(
     user_messages: &[String],
     summary_text: &str,
     max_tokens: usize,
+    message_ids: CompactedHistoryMessageIds,
 ) -> Vec<ResponseItem> {
     let mut selected_messages: Vec<String> = Vec::new();
     if max_tokens > 0 {
@@ -535,12 +557,7 @@ fn build_compacted_history_with_limit(
     }
 
     for message in &selected_messages {
-        history.push(ResponseItem::new_message(
-            "user",
-            vec![ContentItem::InputText {
-                text: message.clone(),
-            }],
-        ));
+        history.push(compacted_user_message(message.clone(), message_ids));
     }
 
     let summary_text = if summary_text.is_empty() {
@@ -549,12 +566,22 @@ fn build_compacted_history_with_limit(
         summary_text.to_string()
     };
 
-    history.push(ResponseItem::new_message(
-        "user",
-        vec![ContentItem::InputText { text: summary_text }],
-    ));
+    history.push(compacted_user_message(summary_text, message_ids));
 
     history
+}
+
+fn compacted_user_message(text: String, message_ids: CompactedHistoryMessageIds) -> ResponseItem {
+    let content = vec![ContentItem::InputText { text }];
+    match message_ids {
+        CompactedHistoryMessageIds::New => ResponseItem::new_message("user", content),
+        CompactedHistoryMessageIds::Missing => ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content,
+            phase: None,
+        },
+    }
 }
 
 async fn drain_to_completed(

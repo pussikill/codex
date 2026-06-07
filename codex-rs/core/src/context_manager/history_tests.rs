@@ -1204,9 +1204,9 @@ fn normalize_adds_missing_output_for_function_call() {
 
     h.normalize_history(&default_input_modalities());
 
-    assert_eq!(
+    crate::session::tests::assert_response_items_eq_ignoring_ids(
         h.raw_items(),
-        vec![
+        &[
             ResponseItem::FunctionCall {
                 id: None,
                 name: "do_it".to_string(),
@@ -1219,7 +1219,7 @@ fn normalize_adds_missing_output_for_function_call() {
                 call_id: "call-x".to_string(),
                 output: FunctionCallOutputPayload::from_text("aborted".to_string()),
             },
-        ]
+        ],
     );
 }
 
@@ -1237,9 +1237,9 @@ fn normalize_adds_missing_output_for_custom_tool_call() {
 
     h.normalize_history(&default_input_modalities());
 
-    assert_eq!(
+    crate::session::tests::assert_response_items_eq_ignoring_ids(
         h.raw_items(),
-        vec![
+        &[
             ResponseItem::CustomToolCall {
                 id: None,
                 status: None,
@@ -1253,7 +1253,7 @@ fn normalize_adds_missing_output_for_custom_tool_call() {
                 name: None,
                 output: FunctionCallOutputPayload::from_text("aborted".to_string()),
             },
-        ]
+        ],
     );
 }
 
@@ -1276,9 +1276,9 @@ fn normalize_adds_missing_output_for_local_shell_call_with_id() {
 
     h.normalize_history(&default_input_modalities());
 
-    assert_eq!(
+    crate::session::tests::assert_response_items_eq_ignoring_ids(
         h.raw_items(),
-        vec![
+        &[
             ResponseItem::LocalShellCall {
                 id: None,
                 call_id: Some("shell-1".to_string()),
@@ -1296,7 +1296,7 @@ fn normalize_adds_missing_output_for_local_shell_call_with_id() {
                 call_id: "shell-1".to_string(),
                 output: FunctionCallOutputPayload::from_text("aborted".to_string()),
             },
-        ]
+        ],
     );
 }
 
@@ -1375,9 +1375,9 @@ fn normalize_mixed_inserts_and_removals() {
 
     h.normalize_history(&default_input_modalities());
 
-    assert_eq!(
+    crate::session::tests::assert_response_items_eq_ignoring_ids(
         h.raw_items(),
-        vec![
+        &[
             ResponseItem::FunctionCall {
                 id: None,
                 name: "f1".to_string(),
@@ -1420,7 +1420,7 @@ fn normalize_mixed_inserts_and_removals() {
                 call_id: "s1".to_string(),
                 output: FunctionCallOutputPayload::from_text("aborted".to_string()),
             },
-        ]
+        ],
     );
 }
 
@@ -1435,9 +1435,9 @@ fn normalize_adds_missing_output_for_function_call_inserts_output() {
     }];
     let mut h = create_history_with_items(items);
     h.normalize_history(&default_input_modalities());
-    assert_eq!(
+    crate::session::tests::assert_response_items_eq_ignoring_ids(
         h.raw_items(),
-        vec![
+        &[
             ResponseItem::FunctionCall {
                 id: None,
                 name: "do_it".to_string(),
@@ -1450,7 +1450,12 @@ fn normalize_adds_missing_output_for_function_call_inserts_output() {
                 call_id: "call-x".to_string(),
                 output: FunctionCallOutputPayload::from_text("aborted".to_string()),
             },
-        ]
+        ],
+    );
+    assert!(
+        h.raw_items()[1]
+            .id()
+            .is_some_and(|id| id.starts_with("fco_"))
     );
 }
 
@@ -1467,9 +1472,9 @@ fn normalize_adds_missing_output_for_tool_search_call() {
 
     h.normalize_history(&default_input_modalities());
 
-    assert_eq!(
+    crate::session::tests::assert_response_items_eq_ignoring_ids(
         h.raw_items(),
-        vec![
+        &[
             ResponseItem::ToolSearchCall {
                 id: None,
                 call_id: Some("search-call-x".to_string()),
@@ -1484,7 +1489,12 @@ fn normalize_adds_missing_output_for_tool_search_call() {
                 execution: "client".to_string(),
                 tools: Vec::new(),
             },
-        ]
+        ],
+    );
+    assert!(
+        h.raw_items()[1]
+            .id()
+            .is_some_and(|id| id.starts_with("tso_"))
     );
 }
 
