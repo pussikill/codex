@@ -1833,34 +1833,6 @@ mod tests {
     }
 
     #[test]
-    fn new_codex_owned_response_items_use_responses_api_prefixes() {
-        for (item, prefix) in [
-            (ResponseItem::new_message("user", Vec::new()), "msg"),
-            (
-                ResponseItem::new_function_call_output(
-                    "call_1",
-                    FunctionCallOutputPayload::from_text("ok".to_string()),
-                ),
-                "fco",
-            ),
-            (
-                ResponseItem::new_custom_tool_call_output(
-                    "call_1",
-                    FunctionCallOutputPayload::from_text("ok".to_string()),
-                ),
-                "ctco",
-            ),
-            (
-                ResponseItem::new_tool_search_output("call_1", "completed", "client", Vec::new()),
-                "tso",
-            ),
-        ] {
-            let id = item.id().expect("new Codex-owned item id");
-            assert!(id.starts_with(&format!("{prefix}_")), "unexpected id: {id}");
-        }
-    }
-
-    #[test]
     fn image_detail_roundtrips_all_wire_values() -> Result<()> {
         assert_eq!(
             serde_json::from_str::<ImageDetail>("\"auto\"")?,

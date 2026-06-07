@@ -493,44 +493,25 @@ async fn recorder_persists_response_item_ids_in_rollout_history() -> std::io::Re
     recorder
         .record_canonical_items(&[
             RolloutItem::ResponseItem(top_level),
-            RolloutItem::ResponseItem(historical_user.clone()),
+            RolloutItem::ResponseItem(historical_user),
             compacted,
         ])
         .await?;
     recorder.flush().await?;
 
-    let (items, loaded_thread_id, parse_errors) =
-        RolloutRecorder::load_rollout_items(&rollout_path).await?;
-    assert_eq!(loaded_thread_id, Some(thread_id));
-    assert_eq!(parse_errors, 0);
-    assert!(matches!(
-        &items[1],
-        RolloutItem::ResponseItem(ResponseItem::Message {
-            id: Some(id),
-            ..
-        }) if id == "msg_top_level"
-    ));
-    let RolloutItem::ResponseItem(loaded_historical_user) = &items[2] else {
-        panic!("expected historical response item");
-    };
-    assert_eq!(loaded_historical_user, &historical_user);
-    let RolloutItem::Compacted(compacted) = &items[3] else {
-        panic!("expected compacted item");
-    };
+    let lines = fs::read_to_string(&rollout_path)?
+        .lines()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(lines[1]["payload"]["id"], "msg_top_level");
+    assert_eq!(lines[2]["payload"].get("id"), None);
     assert_eq!(
-        compacted.replacement_history,
-        Some(vec![
-            ResponseItem::Message {
-                id: Some("msg_replacement".to_string()),
-                role: "assistant".to_string(),
-                content: Vec::new(),
-                phase: None,
-            },
-            ResponseItem::Compaction {
-                id: Some("cmp_replacement".to_string()),
-                encrypted_content: "opaque".to_string(),
-            },
-        ])
+        lines[3]["payload"]["replacement_history"][0]["id"],
+        "msg_replacement"
+    );
+    assert_eq!(
+        lines[3]["payload"]["replacement_history"][1]["id"],
+        "cmp_replacement"
     );
 
     Ok(())

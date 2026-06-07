@@ -1647,57 +1647,21 @@ async fn responses_websocket_creates_on_non_prefix() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn responses_websocket_openai_incremental_create_sends_delta_item_id() {
+async fn responses_websocket_openai_sends_item_ids_for_incremental_and_full_create() {
     skip_if_no_network!();
 
     let server = start_websocket_server(vec![vec![
         vec![
             ev_response_created("resp-1"),
-            ev_assistant_message("msg_assistant_1", "assistant output"),
+            ev_assistant_message("msg_assistant_1", "assistant output 1"),
             ev_completed("resp-1"),
         ],
-        vec![ev_response_created("resp-2"), ev_completed("resp-2")],
-    ]])
-    .await;
-
-    let harness = websocket_harness_with_provider_options(
-        openai_websocket_provider(&server),
-        /*runtime_metrics_enabled*/ false,
-    )
-    .await;
-    let mut session = harness.client.new_session();
-    let prompt_one = prompt_with_input(vec![message_item_with_id("msg_user_1", "hello")]);
-    let prompt_two = prompt_with_input(vec![
-        message_item_with_id("msg_user_1", "hello"),
-        assistant_message_item("msg_assistant_1", "assistant output"),
-        message_item_with_id("msg_user_2", "second"),
-    ]);
-
-    stream_until_complete(&mut session, &harness, &prompt_one).await;
-    stream_until_complete(&mut session, &harness, &prompt_two).await;
-
-    let second = server
-        .single_connection()
-        .get(1)
-        .expect("missing second request")
-        .body_json();
-    assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
-    assert_eq!(second["input"][0]["id"].as_str(), Some("msg_user_2"));
-
-    server.shutdown().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn responses_websocket_openai_full_create_replays_item_ids() {
-    skip_if_no_network!();
-
-    let server = start_websocket_server(vec![vec![
         vec![
-            ev_response_created("resp-1"),
-            ev_assistant_message("msg_assistant_1", "assistant output"),
-            ev_completed("resp-1"),
+            ev_response_created("resp-2"),
+            ev_assistant_message("msg_assistant_2", "assistant output 2"),
+            ev_completed("resp-2"),
         ],
-        vec![ev_response_created("resp-2"), ev_completed("resp-2")],
+        vec![ev_response_created("resp-3"), ev_completed("resp-3")],
     ]])
     .await;
 
@@ -1714,24 +1678,45 @@ async fn responses_websocket_openai_full_create_replays_item_ids() {
     let prompt_two = prompt_with_input_and_instructions(
         vec![
             message_item_with_id("msg_user_1", "hello"),
-            assistant_message_item("msg_assistant_1", "assistant output"),
+            assistant_message_item("msg_assistant_1", "assistant output 1"),
             message_item_with_id("msg_user_2", "second"),
+        ],
+        "base instructions one",
+    );
+    let prompt_three = prompt_with_input_and_instructions(
+        vec![
+            message_item_with_id("msg_user_1", "hello"),
+            assistant_message_item("msg_assistant_1", "assistant output 1"),
+            message_item_with_id("msg_user_2", "second"),
+            assistant_message_item("msg_assistant_2", "assistant output 2"),
+            message_item_with_id("msg_user_3", "third"),
         ],
         "base instructions two",
     );
 
     stream_until_complete(&mut session, &harness, &prompt_one).await;
     stream_until_complete(&mut session, &harness, &prompt_two).await;
+    stream_until_complete(&mut session, &harness, &prompt_three).await;
 
     let second = server
         .single_connection()
         .get(1)
         .expect("missing second request")
         .body_json();
-    assert_eq!(second.get("previous_response_id"), None);
-    assert_eq!(second["input"][0]["id"].as_str(), Some("msg_user_1"));
-    assert_eq!(second["input"][1]["id"].as_str(), Some("msg_assistant_1"));
-    assert_eq!(second["input"][2]["id"].as_str(), Some("msg_user_2"));
+    assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
+    assert_eq!(second["input"][0]["id"].as_str(), Some("msg_user_2"));
+
+    let third = server
+        .single_connection()
+        .get(2)
+        .expect("missing third request")
+        .body_json();
+    assert_eq!(third.get("previous_response_id"), None);
+    assert_eq!(third["input"][0]["id"].as_str(), Some("msg_user_1"));
+    assert_eq!(third["input"][1]["id"].as_str(), Some("msg_assistant_1"));
+    assert_eq!(third["input"][2]["id"].as_str(), Some("msg_user_2"));
+    assert_eq!(third["input"][3]["id"].as_str(), Some("msg_assistant_2"));
+    assert_eq!(third["input"][4]["id"].as_str(), Some("msg_user_3"));
 
     server.shutdown().await;
 }

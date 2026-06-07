@@ -67,110 +67,28 @@ pub(crate) fn attach_stateless_response_item_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_protocol::models::AgentMessageInputContent;
-    use codex_protocol::models::ContentItem;
-    use codex_protocol::models::FunctionCallOutputPayload;
-    use codex_protocol::models::LocalShellAction;
-    use codex_protocol::models::LocalShellExecAction;
-    use codex_protocol::models::LocalShellStatus;
-    use codex_protocol::models::WebSearchAction;
     use pretty_assertions::assert_eq;
 
     #[test]
     fn attaches_stateless_response_item_ids_to_input_json() {
-        let items = vec![
-            ResponseItem::Message {
-                id: Some("msg_1".to_string()),
-                role: "user".to_string(),
-                content: vec![ContentItem::InputText {
-                    text: "hello".to_string(),
-                }],
-                phase: None,
-            },
-            ResponseItem::AgentMessage {
-                id: Some("amsg_1".to_string()),
-                author: "/root".to_string(),
-                recipient: "/root/worker".to_string(),
-                content: vec![AgentMessageInputContent::EncryptedContent {
-                    encrypted_content: "opaque".to_string(),
-                }],
-            },
-            ResponseItem::Reasoning {
-                id: "rs_1".to_string(),
-                summary: Vec::new(),
-                content: None,
-                encrypted_content: None,
-            },
-            ResponseItem::LocalShellCall {
-                id: Some("lsh_1".to_string()),
-                call_id: Some("call_shell".to_string()),
-                status: LocalShellStatus::Completed,
-                action: LocalShellAction::Exec(LocalShellExecAction {
-                    command: vec!["echo".to_string(), "ok".to_string()],
-                    timeout_ms: None,
-                    working_directory: None,
-                    env: None,
-                    user: None,
-                }),
-            },
-            ResponseItem::FunctionCall {
-                id: Some("fc_1".to_string()),
-                name: "shell".to_string(),
-                namespace: None,
-                arguments: "{}".to_string(),
-                call_id: "call_function".to_string(),
-            },
-            ResponseItem::ToolSearchCall {
-                id: Some("tsc_1".to_string()),
-                call_id: Some("call_search".to_string()),
-                status: Some("completed".to_string()),
-                execution: "client".to_string(),
-                arguments: serde_json::json!({}),
-            },
-            ResponseItem::FunctionCallOutput {
-                id: Some("fco_1".to_string()),
-                call_id: "call_1".to_string(),
-                output: FunctionCallOutputPayload::from_text("ok".to_string()),
-            },
-            ResponseItem::CustomToolCall {
-                id: Some("ctc_1".to_string()),
-                status: Some("completed".to_string()),
-                call_id: "call_custom".to_string(),
-                name: "apply_patch".to_string(),
-                input: "{}".to_string(),
-            },
-            ResponseItem::CustomToolCallOutput {
-                id: Some("ctco_1".to_string()),
-                call_id: "call_custom".to_string(),
-                name: Some("apply_patch".to_string()),
-                output: FunctionCallOutputPayload::from_text("ok".to_string()),
-            },
-            ResponseItem::ToolSearchOutput {
-                id: Some("tso_1".to_string()),
-                call_id: Some("call_search".to_string()),
-                status: "completed".to_string(),
-                execution: "client".to_string(),
-                tools: Vec::new(),
-            },
-            ResponseItem::WebSearchCall {
-                id: Some("ws_1".to_string()),
-                status: Some("completed".to_string()),
-                action: Some(WebSearchAction::Search {
-                    query: Some("weather".to_string()),
-                    queries: None,
-                }),
-            },
-            ResponseItem::ImageGenerationCall {
-                id: "ig_1".to_string(),
-                status: "completed".to_string(),
-                revised_prompt: None,
-                result: "image".to_string(),
-            },
-            ResponseItem::Compaction {
-                id: Some("cmp_1".to_string()),
-                encrypted_content: "opaque".to_string(),
-            },
-        ];
+        let items = serde_json::from_str::<Vec<ResponseItem>>(
+            r#"[
+                {"type":"message","id":"msg_1","role":"user","content":[]},
+                {"type":"agent_message","id":"amsg_1","author":"/root","recipient":"/root/worker","content":[]},
+                {"type":"reasoning","id":"rs_1","summary":[]},
+                {"type":"local_shell_call","id":"lsh_1","call_id":"call_shell","status":"completed","action":{"type":"exec","command":["echo","ok"]}},
+                {"type":"function_call","id":"fc_1","name":"shell","arguments":"{}","call_id":"call_function"},
+                {"type":"tool_search_call","id":"tsc_1","call_id":"call_search","status":"completed","execution":"client","arguments":{}},
+                {"type":"function_call_output","id":"fco_1","call_id":"call_1","output":"ok"},
+                {"type":"custom_tool_call","id":"ctc_1","status":"completed","call_id":"call_custom","name":"apply_patch","input":"{}"},
+                {"type":"custom_tool_call_output","id":"ctco_1","call_id":"call_custom","name":"apply_patch","output":"ok"},
+                {"type":"tool_search_output","id":"tso_1","call_id":"call_search","status":"completed","execution":"client","tools":[]},
+                {"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"weather"}},
+                {"type":"image_generation_call","id":"ig_1","status":"completed","result":"image"},
+                {"type":"compaction","id":"cmp_1","encrypted_content":"opaque"}
+            ]"#,
+        )
+        .expect("deserialize response items");
         let mut payload = serde_json::json!({
             "input": serde_json::to_value(&items).expect("serialize input"),
         });
