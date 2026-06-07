@@ -74,7 +74,7 @@ pub(crate) fn should_use_remote_compact_task(provider: &ModelProviderInfo) -> bo
 pub(crate) fn assign_client_generated_ids(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
     items
         .into_iter()
-        .map(ResponseItem::with_new_client_generated_id_if_missing)
+        .map(ResponseItem::with_id_if_missing)
         .collect()
 }
 

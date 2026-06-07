@@ -198,12 +198,15 @@ fn build_text_message(role: &str, text_sections: Vec<String>) -> Option<Response
         .map(|text| ContentItem::InputText { text })
         .collect();
 
-    Some(ResponseItem::Message {
-        id: None,
-        role: role.to_string(),
-        content,
-        phase: None,
-    })
+    Some(
+        ResponseItem::Message {
+            id: None,
+            role: role.to_string(),
+            content,
+            phase: None,
+        }
+        .with_id_if_missing(),
+    )
 }
 
 pub(crate) fn build_settings_update_items(

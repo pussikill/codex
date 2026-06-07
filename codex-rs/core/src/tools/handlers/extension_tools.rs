@@ -295,7 +295,7 @@ mod tests {
             }],
             phase: None,
         }
-        .with_new_client_generated_id_if_missing();
+        .with_id_if_missing();
         session
             .record_conversation_items(&turn, std::slice::from_ref(&history_item))
             .await;

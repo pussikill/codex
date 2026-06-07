@@ -386,12 +386,15 @@ pub fn build_hook_prompt_message(fragments: &[HookPromptFragment]) -> Option<Res
         return None;
     }
 
-    Some(ResponseItem::Message {
-        id: Some(uuid::Uuid::new_v4().to_string()),
-        role: "user".to_string(),
-        content,
-        phase: None,
-    })
+    Some(
+        ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content,
+            phase: None,
+        }
+        .with_id_if_missing(),
+    )
 }
 
 pub fn parse_hook_prompt_message(

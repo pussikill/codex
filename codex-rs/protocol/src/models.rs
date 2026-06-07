@@ -767,6 +767,10 @@ pub enum ResponseItem {
         phase: Option<MessagePhase>,
     },
     AgentMessage {
+        #[serde(default, skip_serializing)]
+        #[ts(skip)]
+        #[schemars(skip)]
+        id: Option<String>,
         author: String,
         recipient: String,
         content: Vec<AgentMessageInputContent>,
@@ -929,6 +933,7 @@ pub enum ResponseItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClientGeneratedResponseItemIdKind {
     Message,
+    AgentMessage,
     FunctionCallOutput,
     CustomToolCallOutput,
     ToolSearchOutput,
@@ -938,6 +943,7 @@ impl ClientGeneratedResponseItemIdKind {
     fn prefix(self) -> &'static str {
         match self {
             Self::Message => "msg",
+            Self::AgentMessage => "amsg",
             Self::FunctionCallOutput => "fco",
             Self::CustomToolCallOutput => "ctco",
             Self::ToolSearchOutput => "tso",
@@ -960,12 +966,11 @@ fn client_generated_response_item_id(
 }
 
 impl ResponseItem {
-    /// Ensures a newly created Codex-owned message has a stable Responses API ID.
+    /// Ensures a newly created Codex-owned item has a stable Responses API ID.
     ///
-    /// Use this for synthetic messages Codex authors directly, including assistant-role messages
-    /// such as `/review` exit messages. Do not use it for assistant messages loaded from rollout
-    /// history or returned by the model, where a missing historical ID must remain omitted.
-    pub fn with_new_client_generated_message_id_if_missing(self) -> Self {
+    /// Do not use this for items loaded from rollout history: missing historical IDs must remain
+    /// omitted so replay does not invent new identities.
+    pub fn with_id_if_missing(self) -> Self {
         match self {
             Self::Message {
                 id,
@@ -981,29 +986,19 @@ impl ResponseItem {
                 content,
                 phase,
             },
-            item => item,
-        }
-    }
-
-    /// Ensures a newly created Codex-originated item has a stable Responses API ID.
-    ///
-    /// Do not use this for items loaded from rollout history: missing historical IDs must remain
-    /// omitted so replay does not invent new identities.
-    pub fn with_new_client_generated_id_if_missing(self) -> Self {
-        match self {
-            Self::Message {
+            Self::AgentMessage {
                 id,
-                role,
+                author,
+                recipient,
                 content,
-                phase,
-            } if role != "assistant" => Self::Message {
+            } => Self::AgentMessage {
                 id: client_generated_response_item_id(
                     id,
-                    ClientGeneratedResponseItemIdKind::Message,
+                    ClientGeneratedResponseItemIdKind::AgentMessage,
                 ),
-                role,
+                author,
+                recipient,
                 content,
-                phase,
             },
             Self::FunctionCallOutput {
                 id,
@@ -1054,6 +1049,7 @@ impl ResponseItem {
     pub fn id(&self) -> Option<&str> {
         match self {
             Self::Message { id, .. }
+            | Self::AgentMessage { id, .. }
             | Self::LocalShellCall { id, .. }
             | Self::FunctionCall { id, .. }
             | Self::ToolSearchCall { id, .. }
@@ -1064,10 +1060,7 @@ impl ResponseItem {
             | Self::WebSearchCall { id, .. }
             | Self::Compaction { id, .. } => id.as_deref(),
             Self::Reasoning { id, .. } | Self::ImageGenerationCall { id, .. } => Some(id),
-            Self::AgentMessage { .. }
-            | Self::CompactionTrigger
-            | Self::ContextCompaction { .. }
-            | Self::Other => None,
+            Self::CompactionTrigger | Self::ContextCompaction { .. } | Self::Other => None,
         }
     }
 
@@ -1910,7 +1903,7 @@ mod tests {
             }],
             phase: Some(MessagePhase::Commentary),
         }
-        .with_new_client_generated_id_if_missing();
+        .with_id_if_missing();
 
         assert_eq!(
             item,
@@ -1929,6 +1922,7 @@ mod tests {
     fn new_client_generated_response_item_ids_use_responses_api_prefixes() {
         for (kind, prefix) in [
             (ClientGeneratedResponseItemIdKind::Message, "msg"),
+            (ClientGeneratedResponseItemIdKind::AgentMessage, "amsg"),
             (ClientGeneratedResponseItemIdKind::FunctionCallOutput, "fco"),
             (
                 ClientGeneratedResponseItemIdKind::CustomToolCallOutput,
@@ -1949,7 +1943,7 @@ mod tests {
             content: Vec::new(),
             phase: None,
         }
-        .with_new_client_generated_id_if_missing() else {
+        .with_id_if_missing() else {
             panic!("expected message id");
         };
 
@@ -1964,7 +1958,7 @@ mod tests {
             content: Vec::new(),
             phase: None,
         }
-        .with_new_client_generated_message_id_if_missing() else {
+        .with_id_if_missing() else {
             panic!("expected message id");
         };
 
@@ -1972,13 +1966,24 @@ mod tests {
     }
 
     #[test]
-    fn server_generated_response_items_keep_missing_ids() {
-        let assistant_message = ResponseItem::Message {
+    fn client_generated_agent_messages_can_get_ids() {
+        let ResponseItem::AgentMessage { id: Some(id), .. } = ResponseItem::AgentMessage {
             id: None,
-            role: "assistant".to_string(),
-            content: Vec::new(),
-            phase: None,
+            author: "/root".to_string(),
+            recipient: "/root/worker".to_string(),
+            content: vec![AgentMessageInputContent::EncryptedContent {
+                encrypted_content: "opaque".to_string(),
+            }],
+        }
+        .with_id_if_missing() else {
+            panic!("expected agent message id");
         };
+
+        assert!(id.starts_with("amsg_"));
+    }
+
+    #[test]
+    fn non_client_generated_response_items_keep_missing_ids() {
         let reasoning = ResponseItem::Reasoning {
             id: String::new(),
             summary: Vec::new(),
@@ -1997,24 +2002,10 @@ mod tests {
             tools: Vec::new(),
         };
 
+        assert_eq!(reasoning.clone().with_id_if_missing(), reasoning);
+        assert_eq!(compaction.clone().with_id_if_missing(), compaction);
         assert_eq!(
-            assistant_message
-                .clone()
-                .with_new_client_generated_id_if_missing(),
-            assistant_message
-        );
-        assert_eq!(
-            reasoning.clone().with_new_client_generated_id_if_missing(),
-            reasoning
-        );
-        assert_eq!(
-            compaction.clone().with_new_client_generated_id_if_missing(),
-            compaction
-        );
-        assert_eq!(
-            server_tool_search_output
-                .clone()
-                .with_new_client_generated_id_if_missing(),
+            server_tool_search_output.clone().with_id_if_missing(),
             server_tool_search_output
         );
     }
@@ -2029,6 +2020,14 @@ mod tests {
                     text: "hello".to_string(),
                 }],
                 phase: None,
+            },
+            ResponseItem::AgentMessage {
+                id: Some("amsg_1".to_string()),
+                author: "/root".to_string(),
+                recipient: "/root/worker".to_string(),
+                content: vec![AgentMessageInputContent::EncryptedContent {
+                    encrypted_content: "opaque".to_string(),
+                }],
             },
             ResponseItem::Reasoning {
                 id: "rs_1".to_string(),
@@ -2121,8 +2120,8 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                "msg_1", "rs_1", "lsh_1", "fc_1", "tsc_1", "fco_1", "ctc_1", "ctco_1", "tso_1",
-                "ws_1", "ig_1", "cmp_1",
+                "msg_1", "amsg_1", "rs_1", "lsh_1", "fc_1", "tsc_1", "fco_1", "ctc_1", "ctco_1",
+                "tso_1", "ws_1", "ig_1", "cmp_1",
             ]
         );
     }

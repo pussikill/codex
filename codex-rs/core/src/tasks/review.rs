@@ -246,7 +246,7 @@ pub(crate) async fn exit_review_mode(
                 content: vec![ContentItem::InputText { text: user_message }],
                 phase: None,
             }
-            .with_new_client_generated_message_id_if_missing()],
+            .with_id_if_missing()],
         )
         .await;
 
@@ -267,7 +267,7 @@ pub(crate) async fn exit_review_mode(
                 }],
                 phase: None,
             }
-            .with_new_client_generated_message_id_if_missing(),
+            .with_id_if_missing(),
         )
         .await;
 

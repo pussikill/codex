@@ -84,6 +84,7 @@ pub trait ContextualUserFragment {
             }],
             phase: None,
         }
+        .with_id_if_missing()
     }
 
     fn into_boxed_response_item(self: Box<Self>) -> ResponseItem {
@@ -95,6 +96,7 @@ pub trait ContextualUserFragment {
             }],
             phase: None,
         }
+        .with_id_if_missing()
     }
 
     fn into_response_input_item(self) -> ResponseInputItem

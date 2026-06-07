@@ -2578,11 +2578,7 @@ impl Session {
         turn_context: &TurnContext,
         items: &[ResponseItem],
     ) {
-        let items: Vec<ResponseItem> = items
-            .iter()
-            .cloned()
-            .map(ResponseItem::with_new_client_generated_id_if_missing)
-            .collect();
+        let items = items.to_vec();
         {
             let mut state = self.state.lock().await;
             state.record_items(items.iter(), turn_context.truncation_policy);

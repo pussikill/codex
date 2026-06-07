@@ -403,7 +403,8 @@ impl CodexThread {
             role: "user".to_string(),
             content: vec![ContentItem::InputText { text: message }],
             phase: None,
-        };
+        }
+        .with_id_if_missing();
         self.codex
             .session
             .inject_no_new_turn(vec![item], /*current_turn_context*/ None)
