@@ -1,8 +1,8 @@
-use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::openai_models::InputModality;
 use std::collections::HashSet;
 
@@ -33,9 +33,7 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                     missing_outputs_to_insert.push((
                         idx,
                         ResponseItem::FunctionCallOutput {
-                            id: Some(
-                                ResponseItemIdKind::FunctionCallOutput.new_id(),
-                            ),
+                            id: Some(ResponseItemIdKind::FunctionCallOutput.new_id()),
                             call_id: call_id.clone(),
                             output: FunctionCallOutputPayload::from_text("aborted".to_string()),
                         },
@@ -83,9 +81,7 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                     missing_outputs_to_insert.push((
                         idx,
                         ResponseItem::CustomToolCallOutput {
-                            id: Some(
-                                ResponseItemIdKind::CustomToolCallOutput.new_id(),
-                            ),
+                            id: Some(ResponseItemIdKind::CustomToolCallOutput.new_id()),
                             call_id: call_id.clone(),
                             name: None,
                             output: FunctionCallOutputPayload::from_text("aborted".to_string()),
@@ -110,9 +106,7 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                         missing_outputs_to_insert.push((
                             idx,
                             ResponseItem::FunctionCallOutput {
-                                id: Some(
-                                    ResponseItemIdKind::FunctionCallOutput.new_id(),
-                                ),
+                                id: Some(ResponseItemIdKind::FunctionCallOutput.new_id()),
                                 call_id: call_id.clone(),
                                 output: FunctionCallOutputPayload::from_text("aborted".to_string()),
                             },

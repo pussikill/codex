@@ -13,9 +13,9 @@ use crate::shell::Shell;
 use codex_execpolicy::Policy;
 use codex_features::Feature;
 use codex_protocol::config_types::Personality;
-use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::models::ResponseItemIdKind;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::TurnContextItem;
 

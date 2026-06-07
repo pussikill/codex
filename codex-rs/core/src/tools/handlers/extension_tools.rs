@@ -138,9 +138,9 @@ mod tests {
     use codex_extension_api::TurnItemContributor;
     use codex_protocol::items::TurnItem;
     use codex_protocol::items::WebSearchItem;
-    use codex_protocol::models::ResponseItemIdKind;
     use codex_protocol::models::ContentItem;
     use codex_protocol::models::ResponseItem;
+    use codex_protocol::models::ResponseItemIdKind;
     use codex_protocol::models::WebSearchAction;
     use codex_protocol::protocol::EventMsg;
     use codex_tools::ExtensionTurnItem;
