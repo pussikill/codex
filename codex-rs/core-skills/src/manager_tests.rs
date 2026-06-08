@@ -27,6 +27,15 @@ fn write_user_skill(codex_home: &TempDir, dir: &str, name: &str, description: &s
     fs::write(skill_dir.join("SKILL.md"), content).unwrap();
 }
 
+fn write_system_skill_at(root: &Path, dir: &str, name: &str, description: &str) -> PathBuf {
+    let skill_dir = root.join("skills/.system").join(dir);
+    fs::create_dir_all(&skill_dir).unwrap();
+    let content = format!("---\nname: {name}\ndescription: {description}\n---\n\n# Body\n");
+    let skill_path = skill_dir.join("SKILL.md");
+    fs::write(&skill_path, content).unwrap();
+    skill_path
+}
+
 fn write_plugin_skill(
     codex_home: &TempDir,
     marketplace: &str,
@@ -219,6 +228,68 @@ async fn skills_for_config_reuses_cache_for_same_effective_config() {
         skills_for_config_with_stack(&skills_manager, &cwd, &config_layer_stack, &[]).await;
     assert_eq!(outcome2.errors, outcome1.errors);
     assert_eq!(outcome2.skills, outcome1.skills);
+}
+
+#[tokio::test]
+async fn skills_manager_reads_user_skills_from_codex_home_and_system_skills_from_cache_home() {
+    let codex_home = tempfile::tempdir().expect("tempdir");
+    let system_cache_home = tempfile::tempdir().expect("tempdir");
+    let cwd = tempfile::tempdir().expect("tempdir");
+    let config_layer_stack = config_stack(&codex_home, "");
+    let skills_manager = SkillsManager::new_with_system_cache_home_for_tests(
+        codex_home.path().abs(),
+        system_cache_home.path().abs(),
+        /*bundled_skills_enabled*/ true,
+    );
+
+    write_user_skill(
+        &codex_home,
+        "user",
+        "user-skill",
+        "from persistent user root",
+    );
+    write_system_skill_at(
+        codex_home.path(),
+        "windows-backed-system",
+        "windows-backed-system",
+        "should not be loaded from persistent codex home",
+    );
+    let cached_system_skill_path = write_system_skill_at(
+        system_cache_home.path(),
+        "native-cache-system",
+        "native-cache-system",
+        "from native runtime cache",
+    );
+
+    let outcome =
+        skills_for_config_with_stack(&skills_manager, &cwd, &config_layer_stack, &[]).await;
+    assert!(
+        outcome.errors.is_empty(),
+        "unexpected errors: {:?}",
+        outcome.errors
+    );
+    let loaded_names = outcome
+        .skills
+        .iter()
+        .map(|skill| skill.name.as_str())
+        .collect::<HashSet<_>>();
+    assert!(loaded_names.contains("user-skill"));
+    assert!(loaded_names.contains("native-cache-system"));
+    assert!(!loaded_names.contains("windows-backed-system"));
+
+    let cached_system_skill = outcome
+        .skills
+        .iter()
+        .find(|skill| skill.name == "native-cache-system")
+        .expect("cached system skill should load");
+    assert_eq!(cached_system_skill.scope, SkillScope::System);
+    assert_eq!(
+        cached_system_skill.path_to_skills_md,
+        cached_system_skill_path
+            .abs()
+            .canonicalize()
+            .expect("system skill path should canonicalize")
+    );
 }
 
 #[tokio::test]

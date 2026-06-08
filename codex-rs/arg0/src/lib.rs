@@ -18,6 +18,7 @@ const MISSPELLED_APPLY_PATCH_ARG0: &str = "applypatch";
 #[cfg(unix)]
 const EXECVE_WRAPPER_ARG0: &str = "codex-execve-wrapper";
 const LOCK_FILENAME: &str = ".lock";
+const PID_FILENAME: &str = ".pid";
 const TOKIO_WORKER_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -337,7 +338,7 @@ fn prepare_path_entry_for_codex_aliases(
 
     std::fs::create_dir_all(&codex_home)?;
     // Use a CODEX_HOME-scoped temp root to avoid cluttering the top-level directory.
-    let temp_root = codex_home.join("tmp").join("arg0");
+    let temp_root = arg0_runtime_temp_root(&codex_home);
     std::fs::create_dir_all(&temp_root)?;
     #[cfg(unix)]
     {
@@ -356,6 +357,7 @@ fn prepare_path_entry_for_codex_aliases(
         .prefix("codex-arg0")
         .tempdir_in(&temp_root)?;
     let path = temp_dir.path();
+    write_owner_pid(path)?;
 
     let lock_path = path.join(LOCK_FILENAME);
     let lock_file = File::options()
@@ -460,6 +462,46 @@ fn path_env_with_entry(path_entry: &Path, existing_path: Option<OsString>) -> Os
     path_env_var
 }
 
+fn arg0_runtime_temp_root(codex_home: &Path) -> PathBuf {
+    let wsl_distro_name = std::env::var("WSL_DISTRO_NAME").ok();
+    arg0_runtime_temp_root_for(codex_home, std::env::consts::OS, wsl_distro_name.as_deref())
+}
+
+fn arg0_runtime_temp_root_for(
+    codex_home: &Path,
+    platform: &str,
+    wsl_distro_name: Option<&str>,
+) -> PathBuf {
+    let base = codex_home.join("tmp").join("arg0");
+    if platform == "linux"
+        && let Some(distro) = wsl_distro_name
+            .map(str::trim)
+            .filter(|distro| !distro.is_empty())
+    {
+        return base.join("wsl").join(sanitize_namespace_component(distro));
+    }
+    base.join(sanitize_namespace_component(platform))
+}
+
+fn sanitize_namespace_component(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    if sanitized.is_empty() || sanitized == "." || sanitized == ".." {
+        "_".to_string()
+    } else {
+        sanitized
+    }
+}
+
 fn janitor_cleanup(temp_root: &Path) -> std::io::Result<()> {
     let entries = match std::fs::read_dir(temp_root) {
         Ok(entries) => entries,
@@ -470,6 +512,10 @@ fn janitor_cleanup(temp_root: &Path) -> std::io::Result<()> {
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
+            continue;
+        }
+
+        if dir_belongs_to_running_process(&path) {
             continue;
         }
 
@@ -487,6 +533,36 @@ fn janitor_cleanup(temp_root: &Path) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+fn write_owner_pid(dir: &Path) -> std::io::Result<()> {
+    std::fs::write(dir.join(PID_FILENAME), format!("{}\n", std::process::id()))
+}
+
+fn dir_belongs_to_running_process(dir: &Path) -> bool {
+    let Ok(pid) = std::fs::read_to_string(dir.join(PID_FILENAME)) else {
+        return false;
+    };
+    let Ok(pid) = pid.trim().parse::<u32>() else {
+        return false;
+    };
+    owner_pid_is_running(pid)
+}
+
+fn owner_pid_is_running(pid: u32) -> bool {
+    if pid == std::process::id() {
+        return true;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Path::new("/proc").join(pid.to_string()).exists()
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
 }
 
 fn try_lock_dir(dir: &Path) -> std::io::Result<Option<File>> {
@@ -509,6 +585,8 @@ mod tests {
     use super::Arg0DispatchPaths;
     use super::Arg0PathEntryGuard;
     use super::LOCK_FILENAME;
+    use super::PID_FILENAME;
+    use super::arg0_runtime_temp_root_for;
     use super::janitor_cleanup;
     use super::linux_sandbox_exe_path;
     #[cfg(unix)]
@@ -542,6 +620,10 @@ mod tests {
             .create(true)
             .truncate(false)
             .open(lock_path)
+    }
+
+    fn write_pid(dir: &Path, pid: u32) -> std::io::Result<()> {
+        fs::write(dir.join(PID_FILENAME), format!("{pid}\n"))
     }
 
     fn package_path_test_fixture() -> anyhow::Result<PackagePathTestFixture> {
@@ -617,6 +699,42 @@ mod tests {
             ],
         );
         Ok(())
+    }
+
+    #[test]
+    fn arg0_temp_root_namespaces_windows_wsl_and_linux() {
+        let codex_home = Path::new("/mnt/c/Users/dev/.codex");
+
+        assert_eq!(
+            arg0_runtime_temp_root_for(codex_home, "windows", Some("Ubuntu-24.04")),
+            codex_home.join("tmp").join("arg0").join("windows")
+        );
+        assert_eq!(
+            arg0_runtime_temp_root_for(codex_home, "linux", Some("Ubuntu-24.04")),
+            codex_home
+                .join("tmp")
+                .join("arg0")
+                .join("wsl")
+                .join("Ubuntu-24.04")
+        );
+        assert_eq!(
+            arg0_runtime_temp_root_for(codex_home, "linux", None),
+            codex_home.join("tmp").join("arg0").join("linux")
+        );
+    }
+
+    #[test]
+    fn arg0_temp_root_sanitizes_wsl_distro_namespace() {
+        let codex_home = Path::new("/mnt/c/Users/dev/.codex");
+
+        assert_eq!(
+            arg0_runtime_temp_root_for(codex_home, "linux", Some("../Ubuntu 24.04")),
+            codex_home
+                .join("tmp")
+                .join("arg0")
+                .join("wsl")
+                .join(".._Ubuntu_24.04")
+        );
     }
 
     #[test]
@@ -720,6 +838,34 @@ mod tests {
         janitor_cleanup(root.path())?;
 
         assert!(dir.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn janitor_skips_dirs_owned_by_running_process() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let dir = root.path().join("active-pid");
+        fs::create_dir(&dir)?;
+        create_lock(&dir)?;
+        write_pid(&dir, std::process::id())?;
+
+        janitor_cleanup(root.path())?;
+
+        assert!(dir.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn janitor_removes_dirs_with_stale_pid_and_unlocked_lock() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let dir = root.path().join("stale-pid");
+        fs::create_dir(&dir)?;
+        create_lock(&dir)?;
+        write_pid(&dir, u32::MAX)?;
+
+        janitor_cleanup(root.path())?;
+
+        assert!(!dir.exists());
         Ok(())
     }
 

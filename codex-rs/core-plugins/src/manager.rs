@@ -294,6 +294,7 @@ impl From<PluginDetail> for PluginCapabilitySummary {
 
 pub struct PluginsManager {
     codex_home: PathBuf,
+    cache_home: PathBuf,
     store: PluginStore,
     featured_plugin_ids_cache: RwLock<Option<CachedFeaturedPluginIds>>,
     configured_marketplace_upgrade_state: RwLock<ConfiguredMarketplaceUpgradeState>,
@@ -334,6 +335,19 @@ impl PluginsManager {
         codex_home: PathBuf,
         restriction_product: Option<Product>,
     ) -> Self {
+        let cache_home = codex_utils_home_dir::runtime_cache_home_for_codex_home(&codex_home);
+        Self::new_with_restriction_product_and_cache_home(
+            codex_home,
+            cache_home,
+            restriction_product,
+        )
+    }
+
+    fn new_with_restriction_product_and_cache_home(
+        codex_home: PathBuf,
+        cache_home: PathBuf,
+        restriction_product: Option<Product>,
+    ) -> Self {
         // Product restrictions are enforced at marketplace admission time for a given CODEX_HOME:
         // listing, install, and curated refresh all consult this restriction context before new
         // plugins enter local config or cache. After admission, runtime plugin loading trusts the
@@ -342,8 +356,9 @@ impl PluginsManager {
         //
         // This assumes a single CODEX_HOME is only used by one product.
         Self {
-            codex_home: codex_home.clone(),
-            store: PluginStore::new(codex_home),
+            codex_home,
+            cache_home: cache_home.clone(),
+            store: PluginStore::new(cache_home),
             featured_plugin_ids_cache: RwLock::new(None),
             configured_marketplace_upgrade_state: RwLock::new(
                 ConfiguredMarketplaceUpgradeState::default(),
@@ -358,6 +373,15 @@ impl PluginsManager {
             restriction_product,
             analytics_events_client: RwLock::new(None),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_cache_home_for_tests(codex_home: PathBuf, cache_home: PathBuf) -> Self {
+        Self::new_with_restriction_product_and_cache_home(
+            codex_home,
+            cache_home,
+            Some(Product::Codex),
+        )
     }
 
     pub fn set_analytics_events_client(&self, analytics_events_client: AnalyticsEventsClient) {
@@ -569,7 +593,7 @@ impl PluginsManager {
         }
 
         crate::remote::cached_global_remote_discoverable_plugins(
-            self.codex_home.as_path(),
+            self.cache_home.as_path(),
             &remote_plugin_service_config(config),
             auth,
         )
@@ -695,7 +719,7 @@ impl PluginsManager {
         });
 
         crate::remote::maybe_start_remote_installed_plugin_bundle_sync(
-            self.codex_home.clone(),
+            self.cache_home.clone(),
             remote_plugin_service_config(config),
             auth,
             Some(on_local_cache_changed),
@@ -835,7 +859,7 @@ impl PluginsManager {
         let auth_policy = resolved.policy.authentication;
         let plugin_version =
             if resolved.plugin_id.marketplace_name == OPENAI_CURATED_MARKETPLACE_NAME {
-                let curated_plugin_version = read_curated_plugins_sha(self.codex_home.as_path())
+                let curated_plugin_version = read_curated_plugins_sha(self.cache_home.as_path())
                     .ok_or_else(|| {
                         PluginStoreError::Invalid(
                             "local curated marketplace sha is not available".to_string(),
@@ -846,10 +870,10 @@ impl PluginsManager {
                 None
             };
         let store = self.store.clone();
-        let codex_home = self.codex_home.clone();
+        let cache_home = self.cache_home.clone();
         let result: StorePluginInstallResult = tokio::task::spawn_blocking(move || {
             let materialized =
-                materialize_marketplace_plugin_source(codex_home.as_path(), &resolved.source)
+                materialize_marketplace_plugin_source(cache_home.as_path(), &resolved.source)
                     .map_err(PluginStoreError::Invalid)?;
             let source_path = materialized.path;
             if let Some(plugin_version) = plugin_version {
@@ -916,7 +940,7 @@ impl PluginsManager {
 
     async fn uninstall_plugin_id(&self, plugin_id: PluginId) -> Result<(), PluginUninstallError> {
         let plugin_telemetry = if self.store.active_plugin_root(&plugin_id).is_some() {
-            Some(installed_plugin_telemetry_metadata(self.codex_home.as_path(), &plugin_id).await)
+            Some(installed_plugin_telemetry_metadata(self.cache_home.as_path(), &plugin_id).await)
         } else {
             None
         };
@@ -1155,10 +1179,10 @@ impl PluginsManager {
                     ))
                 })?
             } else {
-                let codex_home = self.codex_home.clone();
+                let cache_home = self.cache_home.clone();
                 let source = plugin.source.clone();
                 let materialized = tokio::task::spawn_blocking(move || {
-                    materialize_marketplace_plugin_source(codex_home.as_path(), &source)
+                    materialize_marketplace_plugin_source(cache_home.as_path(), &source)
                 })
                 .await
                 .map_err(|err| {
@@ -1311,7 +1335,7 @@ impl PluginsManager {
                 );
                 if config_for_remote_sync.remote_plugin_enabled {
                     match crate::remote::fetch_and_cache_global_remote_plugin_catalog(
-                        manager.codex_home.as_path(),
+                        manager.cache_home.as_path(),
                         &remote_plugin_service_config(&config_for_remote_sync),
                         auth.as_ref(),
                     )
@@ -1366,12 +1390,14 @@ impl PluginsManager {
 
         let mut outcome = upgrade_configured_git_marketplaces(
             self.codex_home.as_path(),
+            self.cache_home.as_path(),
             &config.config_layer_stack,
             marketplace_name,
         );
         if !outcome.upgraded_roots.is_empty() {
             match refresh_non_curated_plugin_cache_force_reinstall(
                 self.codex_home.as_path(),
+                self.cache_home.as_path(),
                 &outcome.upgraded_roots,
             ) {
                 Ok(cache_refreshed) => {
@@ -1517,15 +1543,16 @@ impl PluginsManager {
         }
         let manager = Arc::clone(self);
         let codex_home = self.codex_home.clone();
+        let cache_home = self.cache_home.clone();
         if let Err(err) = std::thread::Builder::new()
             .name("plugins-curated-repo-sync".to_string())
             .spawn(
-                move || match sync_openai_plugins_repo(codex_home.as_path()) {
+                move || match sync_openai_plugins_repo(cache_home.as_path()) {
                     Ok(curated_plugin_version) => {
                         let configured_curated_plugin_ids =
                             configured_curated_plugin_ids_from_codex_home(codex_home.as_path());
                         match refresh_curated_plugin_cache(
-                            codex_home.as_path(),
+                            cache_home.as_path(),
                             &curated_plugin_version,
                             &configured_curated_plugin_ids,
                         ) {
@@ -1633,12 +1660,15 @@ impl PluginsManager {
             };
 
             let refresh_result = match request.mode {
-                NonCuratedCacheRefreshMode::IfVersionChanged => {
-                    refresh_non_curated_plugin_cache(self.codex_home.as_path(), &request.roots)
-                }
+                NonCuratedCacheRefreshMode::IfVersionChanged => refresh_non_curated_plugin_cache(
+                    self.codex_home.as_path(),
+                    self.cache_home.as_path(),
+                    &request.roots,
+                ),
                 NonCuratedCacheRefreshMode::ForceReinstall => {
                     refresh_non_curated_plugin_cache_force_reinstall(
                         self.codex_home.as_path(),
+                        self.cache_home.as_path(),
                         &request.roots,
                     )
                 }
@@ -1703,9 +1733,9 @@ impl PluginsManager {
         let mut roots = additional_roots.to_vec();
         roots.extend(installed_marketplace_roots_from_layer_stack(
             &config.config_layer_stack,
-            self.codex_home.as_path(),
+            self.cache_home.as_path(),
         ));
-        let curated_repo_root = curated_plugins_repo_path(self.codex_home.as_path());
+        let curated_repo_root = curated_plugins_repo_path(self.cache_home.as_path());
         if curated_repo_root.is_dir()
             && let Ok(curated_repo_root) = AbsolutePathBuf::try_from(curated_repo_root)
         {

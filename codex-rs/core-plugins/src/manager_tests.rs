@@ -369,6 +369,45 @@ remote_plugin = true
 }
 
 #[tokio::test]
+async fn plugins_manager_reads_config_home_but_loads_plugins_from_cache_home() {
+    let codex_home = TempDir::new().unwrap();
+    let cache_home = TempDir::new().unwrap();
+    write_file(
+        &codex_home.path().join(CONFIG_TOML_FILE),
+        r#"[features]
+plugins = true
+
+[plugins."sample@test"]
+enabled = true
+"#,
+    );
+    write_cached_plugin(cache_home.path(), "test", "sample");
+
+    let config = load_config(codex_home.path(), codex_home.path()).await;
+    let manager = PluginsManager::new_with_cache_home_for_tests(
+        codex_home.path().to_path_buf(),
+        cache_home.path().to_path_buf(),
+    );
+
+    let outcome = manager.plugins_for_config(&config).await;
+
+    assert_eq!(
+        outcome
+            .plugins()
+            .iter()
+            .map(|plugin| plugin.root.to_path_buf())
+            .collect::<Vec<_>>(),
+        vec![
+            cache_home
+                .path()
+                .join("plugins/cache/test/sample/local")
+                .abs()
+                .to_path_buf()
+        ]
+    );
+}
+
+#[tokio::test]
 async fn remote_installed_cache_prefers_local_curated_conflicts_when_remote_plugin_disabled() {
     let codex_home = TempDir::new().unwrap();
     write_file(
@@ -3174,6 +3213,7 @@ enabled = true
     assert!(
         refresh_non_curated_plugin_cache(
             tmp.path(),
+            tmp.path(),
             &[AbsolutePathBuf::try_from(repo_root).unwrap()],
         )
         .expect("cache refresh should succeed")
@@ -3225,6 +3265,7 @@ enabled = true
 
     assert!(
         refresh_non_curated_plugin_cache(
+            tmp.path(),
             tmp.path(),
             &[AbsolutePathBuf::try_from(repo_root).unwrap()],
         )
@@ -3285,6 +3326,7 @@ enabled = true
     assert!(
         refresh_non_curated_plugin_cache(
             tmp.path(),
+            tmp.path(),
             &[AbsolutePathBuf::try_from(repo_root).unwrap()],
         )
         .expect("cache refresh should materialize configured Git plugin")
@@ -3338,6 +3380,7 @@ enabled = true
     assert!(
         !refresh_non_curated_plugin_cache(
             tmp.path(),
+            tmp.path(),
             &[AbsolutePathBuf::try_from(repo_root).unwrap()],
         )
         .expect("cache refresh should be a no-op when configured plugins are current")
@@ -3390,6 +3433,7 @@ enabled = true
 
     assert!(
         refresh_non_curated_plugin_cache_force_reinstall(
+            tmp.path(),
             tmp.path(),
             &[AbsolutePathBuf::try_from(repo_root).unwrap()],
         )
@@ -3448,6 +3492,7 @@ enabled = true
 
     assert!(
         refresh_non_curated_plugin_cache(
+            tmp.path(),
             tmp.path(),
             &[AbsolutePathBuf::try_from(repo_root).unwrap()],
         )

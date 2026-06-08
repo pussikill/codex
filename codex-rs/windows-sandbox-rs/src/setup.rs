@@ -19,6 +19,7 @@ use crate::logging::current_log_file_path;
 use crate::logging::log_note;
 use crate::path_normalization::canonical_path_key;
 use crate::path_normalization::canonicalize_path;
+use crate::path_normalization::is_acl_unsupported_path;
 use crate::resolved_permissions::ResolvedWindowsSandboxPermissions;
 use crate::setup_error::SetupErrorCode;
 use crate::setup_error::SetupFailure;
@@ -223,9 +224,12 @@ fn run_setup_refresh_inner(
         }
     };
     // Refresh should never request elevation; ensure verb isn't set and we don't trigger UAC.
+    let cwd = request.codex_home.to_path_buf();
     let mut cmd = Command::new(&exe);
-    cmd.arg(&b64).stdout(Stdio::null()).stderr(Stdio::null());
-    let cwd = std::env::current_dir().unwrap_or_else(|_| request.codex_home.to_path_buf());
+    cmd.arg(&b64)
+        .current_dir(&cwd)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     log_note(
         &format!(
             "setup refresh: spawning {} (cwd={}, payload_len={})",
@@ -499,7 +503,8 @@ pub(crate) fn effective_write_roots_for_permissions(
     let write_roots = filter_user_profile_root(write_roots);
     let write_roots = filter_user_profile_root_exclusions(write_roots);
     let write_roots = filter_ssh_config_dependency_roots(write_roots);
-    filter_sensitive_write_roots(write_roots, codex_home)
+    let write_roots = filter_sensitive_write_roots(write_roots, codex_home);
+    filter_acl_unsupported_roots(write_roots)
 }
 
 #[derive(Serialize)]
@@ -960,6 +965,7 @@ fn build_payload_deny_write_paths(
         .map(|path| canonicalize_path(&path))
         .collect();
     deny_write_paths.extend(allow_deny_paths.deny);
+    deny_write_paths.retain(|path| !is_acl_unsupported_path(path));
     deny_write_paths
 }
 
@@ -1089,6 +1095,11 @@ fn filter_sensitive_write_roots(mut roots: Vec<PathBuf>, codex_home: &Path) -> V
             && key != secrets_dir_key
             && !key.starts_with(&secrets_dir_prefix)
     });
+    roots
+}
+
+fn filter_acl_unsupported_roots(mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    roots.retain(|root| !is_acl_unsupported_path(root));
     roots
 }
 
@@ -1843,6 +1854,83 @@ mod tests {
             ]
             .into_iter()
             .collect::<HashSet<PathBuf>>(),
+            deny_write_paths.into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn payload_roots_skip_wsl_unc_acl_entries() {
+        let tmp = TempDir::new().expect("tempdir");
+        let codex_home = tmp.path().join("codex-home");
+        let command_cwd = tmp.path().join("workspace");
+        let local_write_root = tmp.path().join("local-write-root");
+        fs::create_dir_all(&command_cwd).expect("create command cwd");
+        fs::create_dir_all(&local_write_root).expect("create local write root");
+        let permission_profile = workspace_write_profile(
+            &[],
+            /*exclude_tmpdir_env_var*/ true,
+            /*exclude_slash_tmp*/ true,
+        );
+        let workspace_roots = workspace_roots_for(command_cwd.as_path());
+        let permissions = permissions_for(&permission_profile, workspace_roots.as_slice());
+        let request = super::SandboxSetupRequest {
+            permissions: &permissions,
+            command_cwd: &command_cwd,
+            env_map: &HashMap::new(),
+            codex_home: &codex_home,
+            proxy_enforced: false,
+        };
+        let overrides = super::SetupRootOverrides {
+            write_roots: Some(vec![
+                PathBuf::from(r"\\wsl.localhost\Ubuntu\home\dev\repo"),
+                PathBuf::from(r"\\?\UNC\wsl.localhost\Ubuntu\home\dev\repo"),
+                local_write_root.clone(),
+            ]),
+            ..Default::default()
+        };
+
+        let (_read_roots, write_roots) = build_payload_roots(&request, &overrides);
+
+        assert_eq!(
+            vec![dunce::canonicalize(&local_write_root).expect("canonical local write root")],
+            write_roots
+        );
+    }
+
+    #[test]
+    fn payload_deny_write_paths_skip_wsl_unc_acl_entries() {
+        let tmp = TempDir::new().expect("tempdir");
+        let codex_home = tmp.path().join("codex-home");
+        let command_cwd = tmp.path().join("workspace");
+        let command_git = command_cwd.join(".git");
+        fs::create_dir_all(&command_git).expect("create command .git");
+        let permission_profile = workspace_write_profile(
+            &[],
+            /*exclude_tmpdir_env_var*/ true,
+            /*exclude_slash_tmp*/ true,
+        );
+        let workspace_roots = workspace_roots_for(command_cwd.as_path());
+        let permissions = permissions_for(&permission_profile, workspace_roots.as_slice());
+        let request = super::SandboxSetupRequest {
+            permissions: &permissions,
+            command_cwd: &command_cwd,
+            env_map: &HashMap::new(),
+            codex_home: &codex_home,
+            proxy_enforced: false,
+        };
+
+        let deny_write_paths = super::build_payload_deny_write_paths(
+            &request,
+            Some(vec![
+                PathBuf::from(r"\\wsl.localhost\Ubuntu\home\dev\repo\.git"),
+                PathBuf::from(r"\\?\UNC\wsl.localhost\Ubuntu\home\dev\repo\.git"),
+            ]),
+        );
+
+        assert_eq!(
+            [dunce::canonicalize(&command_git).expect("canonical command .git")]
+                .into_iter()
+                .collect::<HashSet<PathBuf>>(),
             deny_write_paths.into_iter().collect()
         );
     }

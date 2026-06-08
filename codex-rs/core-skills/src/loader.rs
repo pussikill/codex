@@ -235,6 +235,7 @@ pub(crate) async fn skill_roots(
     fs: Option<Arc<dyn ExecutorFileSystem>>,
     config_layer_stack: &ConfigLayerStack,
     cwd: &AbsolutePathBuf,
+    system_cache_home: &AbsolutePathBuf,
     plugin_skill_roots: Vec<PluginSkillRoot>,
     extra_skill_roots: Vec<AbsolutePathBuf>,
 ) -> Vec<SkillRoot> {
@@ -245,6 +246,7 @@ pub(crate) async fn skill_roots(
         config_layer_stack,
         cwd,
         home_dir.as_ref(),
+        system_cache_home,
         plugin_skill_roots,
         extra_skill_roots,
     )
@@ -256,10 +258,16 @@ async fn skill_roots_with_home_dir(
     config_layer_stack: &ConfigLayerStack,
     cwd: &AbsolutePathBuf,
     home_dir: Option<&AbsolutePathBuf>,
+    system_cache_home: &AbsolutePathBuf,
     plugin_skill_roots: Vec<PluginSkillRoot>,
     extra_skill_roots: Vec<AbsolutePathBuf>,
 ) -> Vec<SkillRoot> {
-    let mut roots = skill_roots_from_layer_stack_inner(config_layer_stack, home_dir, fs.clone());
+    let mut roots = skill_roots_from_layer_stack_inner(
+        config_layer_stack,
+        home_dir,
+        fs.clone(),
+        system_cache_home,
+    );
     roots.extend(plugin_skill_roots.into_iter().map(|root| SkillRoot {
         path: root.path,
         scope: SkillScope::User,
@@ -283,6 +291,7 @@ fn skill_roots_from_layer_stack_inner(
     config_layer_stack: &ConfigLayerStack,
     home_dir: Option<&AbsolutePathBuf>,
     repo_fs: Option<Arc<dyn ExecutorFileSystem>>,
+    system_cache_home: &AbsolutePathBuf,
 ) -> Vec<SkillRoot> {
     let mut roots = Vec::new();
 
@@ -328,10 +337,10 @@ fn skill_roots_from_layer_stack_inner(
                     });
                 }
 
-                // Embedded system skills are cached under `$CODEX_HOME/skills/.system` and are a
-                // special case (not a config layer).
+                // Embedded system skills are cached separately from persistent user skills and are
+                // a special case (not a config layer).
                 roots.push(SkillRoot {
-                    path: system_cache_root_dir(&config_folder),
+                    path: system_cache_root_dir(system_cache_home),
                     scope: SkillScope::System,
                     file_system: Arc::clone(&LOCAL_FS),
                     plugin_id: None,
@@ -1064,15 +1073,31 @@ pub(crate) async fn skill_roots_from_layer_stack(
     cwd: &AbsolutePathBuf,
     home_dir: Option<&AbsolutePathBuf>,
 ) -> Vec<SkillRoot> {
+    let system_cache_home = user_config_folder(config_layer_stack).unwrap_or_else(|| cwd.clone());
     skill_roots_with_home_dir(
         Some(fs),
         config_layer_stack,
         cwd,
         home_dir,
+        &system_cache_home,
         Vec::new(),
         Vec::new(),
     )
     .await
+}
+
+#[cfg(test)]
+fn user_config_folder(config_layer_stack: &ConfigLayerStack) -> Option<AbsolutePathBuf> {
+    config_layer_stack
+        .get_layers(
+            ConfigLayerStackOrdering::HighestPrecedenceFirst,
+            /*include_disabled*/ true,
+        )
+        .iter()
+        .find_map(|layer| match &layer.name {
+            ConfigLayerSource::User { .. } => layer.config_folder(),
+            _ => None,
+        })
 }
 
 #[cfg(test)]

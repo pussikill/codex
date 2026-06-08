@@ -63,7 +63,8 @@ pub fn configured_git_marketplace_names(config_layer_stack: &ConfigLayerStack) -
 }
 
 pub fn upgrade_configured_git_marketplaces(
-    codex_home: &Path,
+    config_home: &Path,
+    cache_home: &Path,
     config_layer_stack: &ConfigLayerStack,
     marketplace_name: Option<&str>,
 ) -> ConfiguredMarketplaceUpgradeOutcome {
@@ -75,7 +76,7 @@ pub fn upgrade_configured_git_marketplaces(
         return ConfiguredMarketplaceUpgradeOutcome::default();
     }
 
-    let install_root = marketplace_install_root(codex_home);
+    let install_root = marketplace_install_root(cache_home);
     let selected_marketplaces = marketplaces
         .iter()
         .map(|marketplace| marketplace.name.clone())
@@ -83,7 +84,7 @@ pub fn upgrade_configured_git_marketplaces(
     let mut upgraded_roots = Vec::new();
     let mut errors = Vec::new();
     for marketplace in marketplaces {
-        match upgrade_configured_git_marketplace(codex_home, &install_root, &marketplace) {
+        match upgrade_configured_git_marketplace(config_home, &install_root, &marketplace) {
             Ok(Some(upgraded_root)) => upgraded_roots.push(upgraded_root),
             Ok(None) => {}
             Err(err) => {

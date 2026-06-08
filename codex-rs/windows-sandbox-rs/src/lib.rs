@@ -61,7 +61,7 @@ mod hide_users;
 mod identity;
 #[cfg(target_os = "windows")]
 mod logging;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 mod path_normalization;
 #[cfg(target_os = "windows")]
 mod process;

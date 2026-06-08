@@ -374,35 +374,40 @@ pub fn curated_plugin_cache_version(plugin_version: &str) -> String {
 }
 
 pub fn refresh_non_curated_plugin_cache(
-    codex_home: &Path,
+    config_home: &Path,
+    cache_home: &Path,
     additional_roots: &[AbsolutePathBuf],
 ) -> Result<bool, String> {
     refresh_non_curated_plugin_cache_with_mode(
-        codex_home,
+        config_home,
+        cache_home,
         additional_roots,
         NonCuratedCacheRefreshMode::IfVersionChanged,
     )
 }
 
 pub fn refresh_non_curated_plugin_cache_force_reinstall(
-    codex_home: &Path,
+    config_home: &Path,
+    cache_home: &Path,
     additional_roots: &[AbsolutePathBuf],
 ) -> Result<bool, String> {
     refresh_non_curated_plugin_cache_with_mode(
-        codex_home,
+        config_home,
+        cache_home,
         additional_roots,
         NonCuratedCacheRefreshMode::ForceReinstall,
     )
 }
 
 fn refresh_non_curated_plugin_cache_with_mode(
-    codex_home: &Path,
+    config_home: &Path,
+    cache_home: &Path,
     additional_roots: &[AbsolutePathBuf],
     mode: NonCuratedCacheRefreshMode,
 ) -> Result<bool, String> {
     let configured_non_curated_plugin_ids =
         non_curated_plugin_ids_from_config_keys(configured_plugins_from_codex_home(
-            codex_home,
+            config_home,
             "failed to read user config while refreshing non-curated plugin cache",
             "failed to parse user config while refreshing non-curated plugin cache",
         ));
@@ -414,7 +419,7 @@ fn refresh_non_curated_plugin_cache_with_mode(
         .map(PluginId::as_key)
         .collect::<HashSet<_>>();
 
-    let store = PluginStore::try_new(codex_home.to_path_buf()).map_err(|err| err.to_string())?;
+    let store = PluginStore::try_new(cache_home.to_path_buf()).map_err(|err| err.to_string())?;
     let marketplace_outcome = list_marketplaces(additional_roots)
         .map_err(|err| format!("failed to discover marketplaces for cache refresh: {err}"))?;
     let mut plugin_sources = HashMap::<String, MarketplacePluginSource>::new();
@@ -462,7 +467,7 @@ fn refresh_non_curated_plugin_cache_with_mode(
             continue;
         };
         let materialized =
-            materialize_marketplace_plugin_source(codex_home, &source).map_err(|err| {
+            materialize_marketplace_plugin_source(cache_home, &source).map_err(|err| {
                 format!("failed to materialize plugin source for {plugin_key}: {err}")
             })?;
         let source_path = materialized.path.clone();

@@ -1977,6 +1977,7 @@ async fn skill_roots_include_admin_with_lowest_priority() {
         Some(Arc::clone(&LOCAL_FS)),
         &cfg.config_layer_stack,
         &cfg.cwd,
+        &codex_home.path().abs(),
         Vec::new(),
         Vec::new(),
     )

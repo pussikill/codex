@@ -8,6 +8,7 @@ use codex_exec_server::ExecutorFileSystem;
 use codex_protocol::protocol::Product;
 use codex_protocol::protocol::SkillScope;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use codex_utils_home_dir::runtime_cache_home_for_codex_home;
 use codex_utils_plugins::PluginSkillRoot;
 use tracing::info;
 use tracing::warn;
@@ -49,7 +50,7 @@ impl SkillsLoadInput {
 }
 
 pub struct SkillsManager {
-    codex_home: AbsolutePathBuf,
+    system_cache_home: AbsolutePathBuf,
     restriction_product: Option<Product>,
     extra_roots: RwLock<Vec<AbsolutePathBuf>>,
     cache_by_cwd: RwLock<HashMap<AbsolutePathBuf, SkillLoadOutcome>>,
@@ -66,8 +67,36 @@ impl SkillsManager {
         bundled_skills_enabled: bool,
         restriction_product: Option<Product>,
     ) -> Self {
+        let system_cache_home = runtime_cache_home_for_codex_home(codex_home.as_path());
+        let system_cache_home = AbsolutePathBuf::from_absolute_path_checked(system_cache_home)
+            .unwrap_or_else(|_| codex_home.clone());
+        Self::new_with_system_cache_home_and_restriction_product(
+            system_cache_home,
+            bundled_skills_enabled,
+            restriction_product,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_system_cache_home_for_tests(
+        _codex_home: AbsolutePathBuf,
+        system_cache_home: AbsolutePathBuf,
+        bundled_skills_enabled: bool,
+    ) -> Self {
+        Self::new_with_system_cache_home_and_restriction_product(
+            system_cache_home,
+            bundled_skills_enabled,
+            Some(Product::Codex),
+        )
+    }
+
+    fn new_with_system_cache_home_and_restriction_product(
+        system_cache_home: AbsolutePathBuf,
+        bundled_skills_enabled: bool,
+        restriction_product: Option<Product>,
+    ) -> Self {
         let manager = Self {
-            codex_home,
+            system_cache_home,
             restriction_product,
             extra_roots: RwLock::new(Vec::new()),
             cache_by_cwd: RwLock::new(HashMap::new()),
@@ -76,8 +105,8 @@ impl SkillsManager {
         if !bundled_skills_enabled {
             // The loader caches bundled skills under `skills/.system`. Clearing that directory is
             // best-effort cleanup; root selection still enforces the config even if removal fails.
-            uninstall_system_skills(&manager.codex_home);
-        } else if let Err(err) = install_system_skills(&manager.codex_home) {
+            uninstall_system_skills(&manager.system_cache_home);
+        } else if let Err(err) = install_system_skills(&manager.system_cache_home) {
             tracing::error!("failed to install system skills: {err}");
         }
         manager
@@ -130,6 +159,7 @@ impl SkillsManager {
             fs,
             &input.config_layer_stack,
             &input.cwd,
+            &self.system_cache_home,
             input.effective_skill_roots.clone(),
             self.extra_roots(),
         )
@@ -158,6 +188,7 @@ impl SkillsManager {
             fs.clone(),
             &input.config_layer_stack,
             &input.cwd,
+            &self.system_cache_home,
             input.effective_skill_roots.clone(),
             self.extra_roots(),
         )

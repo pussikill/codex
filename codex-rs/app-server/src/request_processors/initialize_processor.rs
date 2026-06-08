@@ -138,6 +138,8 @@ impl InitializeRequestProcessor {
         }
 
         let user_agent = get_codex_user_agent();
+        let desktop_wsl_warning =
+            desktop_wsl_windows_codex_home_warning(&name, codex_home.as_path(), is_wsl_runtime());
         let response = InitializeResponse {
             user_agent,
             codex_home,
@@ -148,6 +150,15 @@ impl InitializeRequestProcessor {
         self.outgoing
             .send_response(connection_request_id, response)
             .await;
+
+        if let Some(notification) = desktop_wsl_warning {
+            self.outgoing
+                .send_server_notification_to_connections(
+                    &[connection_id],
+                    ServerNotification::ConfigWarning(notification),
+                )
+                .await;
+        }
 
         if let Some(outbound_initialized) = outbound_initialized {
             outbound_initialized.store(true, Ordering::Release);
@@ -187,5 +198,133 @@ impl InitializeRequestProcessor {
     ) {
         self.analytics_events_client
             .track_request(connection_id.0, request_id, request);
+    }
+}
+
+fn desktop_wsl_windows_codex_home_warning(
+    client_name: &str,
+    codex_home: &Path,
+    is_wsl: bool,
+) -> Option<ConfigWarningNotification> {
+    if !is_wsl
+        || !is_codex_desktop_client(client_name)
+        || !looks_like_windows_path_in_wsl(codex_home)
+    {
+        return None;
+    }
+
+    let codex_home = codex_home.display();
+    Some(ConfigWarningNotification {
+        summary: "Codex Desktop is running in WSL with Windows-backed CODEX_HOME.".to_string(),
+        details: Some(format!(
+            "Codex persistent state is currently loaded from {codex_home}. This preserves existing Windows Desktop auth and threads while plugin and bundled skill caches can use native WSL storage. To move all Codex state to native WSL, start the WSL app-server with CODEX_DESKTOP_WSL_NATIVE_CODEX_HOME=1 after warning that native WSL state may require signing in again unless auth is migrated."
+        )),
+        path: None,
+        range: None,
+    })
+}
+
+fn is_codex_desktop_client(client_name: &str) -> bool {
+    matches!(
+        client_name,
+        "Codex Desktop" | "codex_desktop" | "codex-desktop" | "codex_chatgpt_desktop"
+    )
+}
+
+fn looks_like_windows_path_in_wsl(path: &Path) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let bytes = normalized.as_bytes();
+    if bytes.len() >= 3 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() && bytes[2] == b'/' {
+        return true;
+    }
+
+    let mut components = normalized.split('/').filter(|part| !part.is_empty());
+    let Some(mnt) = components.next() else {
+        return false;
+    };
+    if !mnt.eq_ignore_ascii_case("mnt") {
+        return false;
+    }
+    let Some(drive) = components.next() else {
+        return false;
+    };
+    let drive = drive.as_bytes();
+    drive.len() == 1 && drive[0].is_ascii_alphabetic()
+}
+
+fn is_wsl_runtime() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("WSL_DISTRO_NAME").is_some() {
+            return true;
+        }
+        match std::fs::read_to_string("/proc/version") {
+            Ok(version) => version.to_lowercase().contains("microsoft"),
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::desktop_wsl_windows_codex_home_warning;
+
+    #[test]
+    fn desktop_wsl_windows_codex_home_warning_describes_state_tradeoff() {
+        let warning = desktop_wsl_windows_codex_home_warning(
+            "codex_chatgpt_desktop",
+            Path::new("/mnt/c/Users/alice/.codex"),
+            /*is_wsl*/ true,
+        )
+        .expect("warning");
+
+        assert!(
+            warning.summary.contains("Windows-backed CODEX_HOME"),
+            "unexpected summary: {}",
+            warning.summary
+        );
+        let details = warning.details.expect("details");
+        assert!(
+            details.contains("CODEX_DESKTOP_WSL_NATIVE_CODEX_HOME=1"),
+            "unexpected details: {details}"
+        );
+        assert!(
+            details.contains("plugin and bundled skill caches"),
+            "unexpected details: {details}"
+        );
+        assert!(
+            details.contains("signing in again"),
+            "unexpected details: {details}"
+        );
+    }
+
+    #[test]
+    fn desktop_wsl_windows_codex_home_warning_ignores_non_desktop_clients() {
+        assert!(
+            desktop_wsl_windows_codex_home_warning(
+                "codex_cli",
+                Path::new("/mnt/c/Users/alice/.codex"),
+                /*is_wsl*/ true,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn desktop_wsl_windows_codex_home_warning_ignores_native_wsl_home() {
+        assert!(
+            desktop_wsl_windows_codex_home_warning(
+                "codex_chatgpt_desktop",
+                Path::new("/home/alice/.codex"),
+                /*is_wsl*/ true,
+            )
+            .is_none()
+        );
     }
 }
